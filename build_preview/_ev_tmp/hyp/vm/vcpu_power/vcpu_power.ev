@@ -1,0 +1,25 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vcpu_power
+
+subscribe vcpu_poweron(vcpu)
+	unwinder(vcpu)
+	priority first
+	require_scheduler_lock(vcpu)
+
+subscribe vcpu_poweroff(current)
+	require_scheduler_lock(current)
+
+subscribe vcpu_stopped()
+
+
+subscribe scheduler_set_affinity_prepare(thread, prev_cpu, next_cpu)
+	// Run late to avoid unwinding.
+	priority last
+	require_scheduler_lock(thread)
+
+subscribe thread_killed
+	// Vote to pCPU in case that the core will be powered off or has been
+	// powered off

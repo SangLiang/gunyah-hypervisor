@@ -1,0 +1,37 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module virtio_pci
+
+subscribe virtio_startup[VIRTIO_TRANSPORT_TYPE_PCI](virtio)
+
+subscribe virtio_shutdown[VIRTIO_TRANSPORT_TYPE_PCI](virtio)
+
+subscribe virtio_reset_complete[VIRTIO_TRANSPORT_TYPE_PCI](virtio)
+	require_lock(virtio->status_lock)
+
+subscribe virtio_ack_features_ok[VIRTIO_TRANSPORT_TYPE_PCI](virtio)
+
+subscribe virtio_config_update_end[VIRTIO_TRANSPORT_TYPE_PCI](virtio)
+
+subscribe virtio_queue_ready[VIRTIO_TRANSPORT_TYPE_PCI](virtio, vq)
+
+
+subscribe vpci_config_read[VPCI_FUNCTION_TYPE_VIRTIO](
+	function, capability, offset, access_size)
+	// This should be release_rcu_read. Same for the handlers below.
+	// FIXME: QC Gunyah issue #252
+
+subscribe vpci_config_write[VPCI_FUNCTION_TYPE_VIRTIO](
+	function, capability, offset, access_size, data)
+
+subscribe vpci_bar_read[VPCI_FUNCTION_TYPE_VIRTIO](
+	function, bar_index, offset, access_size)
+
+subscribe vpci_bar_write[VPCI_FUNCTION_TYPE_VIRTIO](
+	function, bar_index, offset, access_size, data)
+
+subscribe vpci_irq_check_pending[VPCI_FUNCTION_TYPE_VIRTIO](function)
+
+subscribe rcu_update[RCU_UPDATE_CLASS_VIRTIO_PCI_CLEANUP](entry)

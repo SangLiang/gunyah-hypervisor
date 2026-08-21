@@ -1,0 +1,9 @@
+// © 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module abort
+
+subscribe ipi_received[IPI_REASON_ABORT_STOP]() noreturn
+
+subscribe scheduler_stop()

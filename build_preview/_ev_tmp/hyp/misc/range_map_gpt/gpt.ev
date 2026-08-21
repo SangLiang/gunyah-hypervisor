@@ -1,0 +1,15 @@
+// © 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module range_map_gpt
+
+subscribe range_map_values_equal[RANGE_MAP_TYPE_EMPTY]
+	handler range_map_gpt_handle_empty_values_equal()
+
+subscribe range_map_walk_callback[RANGE_MAP_CALLBACK_RESERVED]
+	handler range_map_gpt_handle_reserved_callback() noreturn
+
+subscribe rcu_update[RCU_UPDATE_CLASS_RANGE_MAP_FREE_LEVEL]
+	handler range_map_gpt_handle_rcu_free_level(entry)
+

@@ -1,0 +1,21 @@
+// © 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module smccc
+
+
+
+SMCCC_DISPATCH_OWNER(arch, ARCH)
+SMCCC_DISPATCH_OWNER(cpu, CPU)
+SMCCC_DISPATCH_OWNER(sip, SIP)
+SMCCC_DISPATCH_OWNER(oem, OEM)
+SMCCC_DISPATCH_OWNER(standard, STANDARD)
+SMCCC_DISPATCH_OWNER(standard_hyp, STANDARD_HYP)
+SMCCC_DISPATCH_OWNER(vendor_hyp, VENDOR_HYP)
+
+
+SMCCC_ARCH_FUNCTION_32(VERSION, 0, version, ret0)
+SMCCC_ARCH_FUNCTION_32(ARCH_FEATURES, 0, arch_features, arg1, ret0)
+SMCCC_STANDARD_HYP_FUNCTION_32(CALL_UID, 0, std_hyp_call_uid, ret0, ret1, ret2, ret3)
+SMCCC_STANDARD_HYP_FUNCTION_32(REVISION, 0, std_hyp_revision, ret0, ret1)

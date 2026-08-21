@@ -1,0 +1,24 @@
+// © 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vcpu_run
+
+subscribe object_deactivate_thread(thread)
+
+subscribe task_queue_execute[TASK_QUEUE_CLASS_VCPU_RUN_WAKEUP_VIRQ](entry)
+
+subscribe vcpu_activate_thread
+
+subscribe vcpu_wakeup
+	handler vcpu_run_trigger_virq
+
+subscribe vcpu_poweron(vcpu)
+
+subscribe thread_killed
+
+subscribe vcpu_bind_virq[VCPU_VIRQ_TYPE_VCPU_RUN_WAKEUP](vcpu, vic, virq)
+
+subscribe vcpu_unbind_virq[VCPU_VIRQ_TYPE_VCPU_RUN_WAKEUP](vcpu)
+
+subscribe scheduler_get_block_properties[SCHEDULER_BLOCK_VCPU_RUN]

@@ -1,0 +1,23 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module preempt
+
+subscribe boot_cpu_early_init
+
+subscribe boot_cpu_start
+	priority last
+
+subscribe thread_start
+	priority first
+
+subscribe thread_entry_from_user
+	priority last
+
+subscribe thread_exit_to_user
+	priority first
+
+
+subscribe scheduler_stop()
+	priority first

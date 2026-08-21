@@ -1,0 +1,35 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module virtio_iommu
+
+subscribe object_create_virtio_iommu
+	priority last
+
+subscribe object_activate_virtio_iommu
+	unwinder(virtio_iommu)
+
+subscribe object_deactivate_virtio_iommu
+
+subscribe object_cleanup_virtio_iommu(virtio_iommu)
+
+subscribe virtio_reset_requested[VIRTIO_BACKEND_TYPE_IOMMU](virtio)
+	require_spinlock(virtio->status_lock)
+
+subscribe virtio_device_config_read[VIRTIO_BACKEND_TYPE_IOMMU](
+	virtio, offset, access_size)
+
+subscribe virtio_driver_ok[VIRTIO_BACKEND_TYPE_IOMMU](virtio)
+	require_spinlock(virtio->status_lock)
+
+subscribe virtio_queue_notify[VIRTIO_BACKEND_TYPE_IOMMU](virtio, vq)
+
+subscribe viommu_bind_streams
+
+subscribe viommu_unbind_streams
+
+subscribe range_tree_release_node[
+		RANGE_TREE_NODE_TYPE_VIRTIO_IOMMU_STREAM_RANGE](node)
+
+

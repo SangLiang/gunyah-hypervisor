@@ -1,0 +1,19 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module idle
+
+subscribe boot_runtime_first_init(boot_cpu_index)
+	priority last
+
+subscribe object_create_thread
+
+subscribe boot_hypervisor_start
+	handler idle_thread_init()
+
+subscribe thread_get_entry_fn[THREAD_KIND_IDLE]
+
+subscribe thread_get_stack_base[THREAD_KIND_IDLE]
+
+subscribe boot_cold_init

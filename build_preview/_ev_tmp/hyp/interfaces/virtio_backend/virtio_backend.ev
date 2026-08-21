@@ -1,0 +1,34 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface virtio_backend
+
+selector_event virtio_backend_valid_device_type
+	selector type_:		virtio_device_type_t
+	return: bool = false
+
+selector_event virtio_backend_device_config_write
+	selector type_:		virtio_device_type_t
+	param virtio_backend:	const virtio_backend_t *
+	param offset:		size_t
+	param value:		register_t
+	param access_size:	size_t
+	return: error_t = OK
+
+selector_event virtio_backend_device_set_features
+	selector type_:		virtio_device_type_t
+	param virtio_backend:	virtio_backend_t *
+	param feature_sel:	uint32_t
+	param dev_feat:		uint32_t
+	return: uint32_result_t = uint32_result_ok(dev_feat)
+
+selector_event virtio_backend_device_config_activate
+	selector type_:		virtio_device_type_t
+	param virtio_backend:	virtio_backend_t *
+	return: error_t = OK
+
+selector_event virtio_backend_device_config_cleanup
+	selector type_:		virtio_device_type_t
+	param virtio_backend:	virtio_backend_t *
+	return: error_t = OK

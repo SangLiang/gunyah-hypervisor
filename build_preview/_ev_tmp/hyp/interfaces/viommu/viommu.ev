@@ -1,0 +1,20 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface viommu
+
+handled_event viommu_bind_streams
+	param viommu_cap: cap_id_t
+	param iommu_cap: cap_id_t
+	param stream_id_start: viommu_stream_id_t
+	param stream_count: count_t
+	param bound_count: count_t *
+	return: error_t = ERROR_CSPACE_WRONG_OBJECT_TYPE
+
+handled_event viommu_unbind_streams
+	param viommu_cap: cap_id_t
+	param stream_id_start: viommu_stream_id_t
+	param stream_count: count_t
+	param unbound_count: count_t *
+	return: error_t = ERROR_CSPACE_WRONG_OBJECT_TYPE

@@ -1,0 +1,34 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module partition_standard
+
+subscribe boot_runtime_first_init()
+
+subscribe boot_cold_init()
+	priority first
+
+subscribe boot_cold_init
+	handler partition_standard_boot_add_private_heap()
+	// This must run after hyp_aspace_handle_boot_cold_init (priority 20)
+	// and memdb_handle_boot_cold_init (priority 10)
+	priority 9
+
+subscribe boot_cold_init
+	handler partition_standard_boot_create_root_partition()
+	priority last
+
+subscribe boot_hypervisor_start()
+	// Run this early since it can add more heap memory
+	priority 100
+
+subscribe object_create_partition
+	priority last
+
+subscribe object_activate_partition
+
+subscribe object_deactivate_partition()
+
+subscribe rcu_update[RCU_UPDATE_CLASS_PARTITION_RELEASE_MAPPED_RANGE]
+	handler partition_standard_free_mapped_range(entry)

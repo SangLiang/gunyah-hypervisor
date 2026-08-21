@@ -1,0 +1,52 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module arm_vm_timer
+
+subscribe boot_hypervisor_start
+
+subscribe boot_cpu_cold_init()
+
+subscribe boot_cpu_warm_init
+
+subscribe vcpu_save_state
+
+subscribe thread_context_switch_pre()
+
+subscribe vcpu_load_state()
+
+subscribe vcpu_disable_state()
+
+subscribe object_create_thread
+
+subscribe object_activate_thread
+	unwinder arm_vm_timer_handle_object_deactivate_thread(thread)
+
+subscribe object_deactivate_thread
+
+subscribe timer_action[TIMER_ACTION_VIRTUAL_TIMER]
+	handler arm_vm_timer_handle_timer_action(action_type, timer)
+
+subscribe timer_action[TIMER_ACTION_PHYSICAL_TIMER]
+	handler arm_vm_timer_handle_timer_action(action_type, timer)
+
+subscribe virq_check_pending[VIRQ_TRIGGER_VIRTUAL_TIMER]
+	handler arm_vm_timer_handle_virq_check_pending(trigger, source)
+
+subscribe virq_check_pending[VIRQ_TRIGGER_PHYSICAL_TIMER]
+	handler arm_vm_timer_handle_virq_check_pending(trigger, source)
+
+subscribe irq_received[HWIRQ_ACTION_VM_TIMER](irq)
+
+subscribe vcpu_stopped()
+
+subscribe power_cpu_suspend()
+
+subscribe vcpu_suspend()
+
+subscribe vcpu_set_local_virq[VCPU_LOCAL_VIRQ_TYPE_VIRTUAL_TIMER]
+	handler arm_vm_timer_handle_vcpu_set_virtual_timer_virq(vcpu, virq)
+
+subscribe vcpu_set_local_virq[VCPU_LOCAL_VIRQ_TYPE_PHYSICAL_TIMER]
+	handler arm_vm_timer_handle_vcpu_set_physical_timer_virq(vcpu, virq)

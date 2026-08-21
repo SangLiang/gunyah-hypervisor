@@ -1,0 +1,23 @@
+// © 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface rootvm
+
+include <qcbor.h>
+
+event rootvm_init
+	param root_partition: partition_t *
+	param root_thread: thread_t *
+	param root_cspace: cspace_t *
+	param hyp_env: hyp_env_data_t *
+	param qcbor_enc_ctxt: qcbor_enc_ctxt_t *
+
+event rootvm_init_late
+	param root_partition: partition_t *
+	param root_thread: thread_t *
+	param root_cspace: cspace_t *
+	param hyp_env: const hyp_env_data_t *
+
+event rootvm_started
+	param root_thread: thread_t *

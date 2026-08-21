@@ -1,0 +1,13 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module rcu_up
+
+subscribe scheduler_quiescent
+
+// Force a link error if used in a multi-processor configuration.
+subscribe power_cpu_online()
+	handler rcu_up_does_not_support_mp
+subscribe power_cpu_offline()
+	handler rcu_up_does_not_support_mp

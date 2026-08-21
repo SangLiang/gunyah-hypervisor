@@ -1,0 +1,15 @@
+// © 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module arm_arch_timer_lp
+
+subscribe boot_cold_init
+	handler platform_timer_lp_handle_boot_cold_init()
+
+subscribe boot_hypervisor_start
+	handler platform_timer_lp_handle_boot_hypervisor_start
+
+subscribe irq_received[HWIRQ_ACTION_HYP_TIMER_LP]
+	handler platform_timer_lp_handle_irq_received()
+

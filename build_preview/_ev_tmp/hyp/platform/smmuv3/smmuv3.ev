@@ -1,0 +1,12 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module smmuv3
+
+subscribe boot_cold_init
+
+// Using the start handler to get LOG outputs during init
+subscribe boot_hypervisor_start
+
+

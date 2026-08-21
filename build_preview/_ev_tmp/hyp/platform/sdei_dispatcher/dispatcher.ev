@@ -1,0 +1,85 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module sdei_dispatcher
+
+subscribe boot_cold_init()
+
+subscribe rootvm_init(qcbor_enc_ctxt)
+
+subscribe vcpu_activate_thread
+
+subscribe object_deactivate_thread
+
+subscribe object_create_vic
+
+subscribe object_deactivate_vic
+
+subscribe object_create_watchdog
+
+subscribe object_deactivate_watchdog
+
+subscribe thread_exit_to_user_final
+	priority first
+
+subscribe ipi_received[IPI_REASON_SDEI]()
+
+subscribe vcpu_trap_wfi()
+	// Run very early, in case we need to trigger a wakeup
+	priority 1000
+
+subscribe vcpu_pending_wakeup
+
+subscribe thread_context_switch_pre()
+
+subscribe vcpu_stopped
+
+subscribe vcpu_warm_reset
+
+subscribe timer_action[TIMER_ACTION_SDEI_SYSTEM_GRACE_PERIOD_1]
+	handler sdei_dispatcher_handle_timer_action_system_grace_period_1()
+
+subscribe timer_action[TIMER_ACTION_SDEI_SYSTEM_GRACE_PERIOD_2]
+	handler sdei_dispatcher_handle_timer_action_system_grace_period_2() noreturn
+
+subscribe timer_action[TIMER_ACTION_SDEI_VM_GRACE_PERIOD]
+	handler sdei_dispatcher_handle_timer_action_vm_grace_period(timer)
+
+subscribe vcpu_vm_off_request(vcpu, defer)
+
+subscribe vcpu_vm_off_failed
+
+subscribe watchdog_non_hyp_bite
+
+
+SDEI_FUNCTION(VERSION, version, ret0)
+SDEI_FUNCTION(EVENT_REGISTER,  	event_register, arg1, arg2, arg3, arg4, arg5, ret0)
+SDEI_FUNCTION(EVENT_ENABLE, event_enable, arg1, ret0)
+SDEI_FUNCTION(EVENT_DISABLE, event_disable, arg1, ret0)
+SDEI_FUNCTION(EVENT_CONTEXT, event_context, arg1, ret0)
+SDEI_FUNCTION(EVENT_COMPLETE, event_complete, arg1, ret0)
+SDEI_FUNCTION(EVENT_COMPLETE_AND_RESUME, event_complete_and_resume, arg1, ret0)
+SDEI_FUNCTION(EVENT_UNREGISTER, event_unregister, arg1, ret0)
+SDEI_FUNCTION(EVENT_STATUS, event_status, arg1, ret0)
+SDEI_FUNCTION(EVENT_GET_INFO, event_get_info, arg1, arg2, ret0)
+SDEI_FUNCTION(EVENT_ROUTING_SET, event_routing_set, arg1, arg2, arg3, ret0)
+SDEI_FUNCTION(PE_MASK, pe_mask, ret0)
+SDEI_FUNCTION(PE_UNMASK, pe_unmask, ret0)
+SDEI_FUNCTION(INTERRUPT_BIND, interrupt_bind, arg1, ret0)
+SDEI_FUNCTION(INTERRUPT_RELEASE, interrupt_release, arg1, ret0)
+SDEI_FUNCTION(EVENT_SIGNAL, event_signal, arg1, arg2, ret0)
+SDEI_FUNCTION(FEATURES, features, arg1, ret0)
+SDEI_FUNCTION(PRIVATE_RESET, private_reset, ret0)
+SDEI_FUNCTION(SHARED_RESET, shared_reset, ret0)
+
+
+SDEI_INFO(EV_TYPE, ev_type)
+SDEI_INFO(EV_SIGNALED, ev_signaled)
+SDEI_INFO(EV_PRIORITY, ev_priority)
+SDEI_INFO(EV_ROUTING_MODE, ev_routing_mode)
+SDEI_INFO(EV_ROUTING_AFF, ev_routing_aff)
+
+
+SDEI_FEATURE(BIND_SLOTS, bind_slots)
+SDEI_FEATURE(RELATIVE_MODE, relative_mode)

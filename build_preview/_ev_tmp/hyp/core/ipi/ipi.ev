@@ -1,0 +1,37 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface ipi
+
+// Private interface for ipi and trace modules
+handled_event ipi_received_trace
+	param reason: ipi_reason_t
+	return: bool = false
+
+module ipi
+
+subscribe ipi_received_trace
+	priority last
+
+subscribe platform_ipi
+
+subscribe idle_yield
+	// Run late, as this handler may sleep
+	priority -100
+
+subscribe power_cpu_suspend()
+
+subscribe preempt_interrupt
+
+subscribe preempt_check
+
+
+// Other handlers might clear IPIs, so this has low priority to avoid
+// processing those IPIs prematurely.
+subscribe scheduler_quiescent
+	priority -1000
+
+// This handler IPIs all cores to stop, it has high priority
+subscribe scheduler_stop()
+	priority 1000

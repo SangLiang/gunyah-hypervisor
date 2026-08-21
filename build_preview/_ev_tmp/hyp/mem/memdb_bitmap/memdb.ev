@@ -1,0 +1,23 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module memdb_bitmap
+
+subscribe rcu_update[RCU_UPDATE_CLASS_MEMDB_RELEASE_LEVEL_TABLE]
+	handler memdb_bitmap_free_level_table(entry)
+
+subscribe rcu_update[RCU_UPDATE_CLASS_MEMDB_RELEASE_LEVEL_BITMAP]
+	handler memdb_bitmap_free_level_bitmap(entry)
+
+subscribe boot_cold_init()
+	// Must run after pagetable init and hyp_aspace initialisation.
+	priority 10
+
+subscribe partition_add_ram_range(owner, phys_base, size)
+	unwinder(owner, phys_base, size)
+
+subscribe partition_remove_ram_range(owner, phys_base, size)
+	unwinder(owner, phys_base, size)
+
+subscribe partition_get_private_heap_requirement(ddr_size, heap_size)

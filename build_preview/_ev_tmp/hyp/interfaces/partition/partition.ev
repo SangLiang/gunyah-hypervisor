@@ -1,0 +1,35 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier; BSD-3-Clause
+
+interface partition
+
+// Add normal memory to the system.
+//
+// This event is triggered by calling platform_add_ram_range().
+setup_event partition_add_ram_range
+	param owner: partition_t *
+	param phys_base: paddr_t
+	param size: size_t
+	param hotplug: bool
+	return: error_t = OK
+	success: OK
+
+// Remove normal memory from the system.
+//
+// This event is triggered by calling platform_remove_ram_range().
+setup_event partition_remove_ram_range
+	param owner: partition_t *
+	param phys_base: paddr_t
+	param size: size_t
+	return: error_t = OK
+	success: OK
+
+// Calculate the private heap size requirement based on total DDR size.
+//
+// This event allows modules to calculate the private heap requirements
+// based on the total system DDR size. The calculated size is returned
+// through the heap_size pointer parameter.
+event partition_get_private_heap_requirement
+				param ddr_size: size_t
+				param heap_size: size_t *

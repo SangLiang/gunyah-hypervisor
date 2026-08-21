@@ -1,0 +1,36 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vcpu
+
+subscribe object_get_defaults_thread
+
+subscribe object_create_thread
+
+// Run (second) last, the handler configures vcpu options through its own
+// setup_event which can't unwind correctly unless it is last here.
+subscribe object_activate_thread
+	priority -100
+
+subscribe thread_exited
+
+subscribe thread_save_state()
+
+subscribe thread_load_state()
+
+
+subscribe virq_set_mode[VIRQ_TRIGGER_VCPU_HALT]
+	handler vcpu_handle_virq_set_mode()
+
+subscribe vcpu_bind_virq[VCPU_VIRQ_TYPE_HALT](vcpu, vic, virq)
+
+subscribe vcpu_unbind_virq[VCPU_VIRQ_TYPE_HALT](vcpu)
+
+interface vcpu
+
+setup_event vcpu_activate_thread
+	param thread: thread_t *
+	param options: vcpu_option_flags_t
+	return: bool = true
+	success: true

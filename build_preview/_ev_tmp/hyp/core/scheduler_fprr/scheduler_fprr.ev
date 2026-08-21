@@ -1,0 +1,43 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module scheduler_fprr
+
+subscribe boot_cold_init()
+
+subscribe object_create_thread
+	// Needs to run late, so other handlers can
+	// set scheduler properties without locking.
+	priority -100
+
+subscribe object_activate_thread
+
+
+subscribe object_deactivate_thread
+
+subscribe thread_context_switch_pre(next)
+	unwinder()
+	priority first
+
+subscribe thread_context_switch_post(prev)
+	priority last
+
+subscribe ipi_received[IPI_REASON_RESCHEDULE]
+	handler scheduler_fprr_handle_ipi_reschedule()
+
+subscribe timer_action[TIMER_ACTION_RESCHEDULE]
+	handler scheduler_fprr_handle_timer_reschedule()
+
+subscribe rcu_update[RCU_UPDATE_CLASS_AFFINITY_CHANGED]
+	handler scheduler_fprr_handle_affinity_change_update(entry)
+
+subscribe thread_killed
+	// Run last so other handlers can prepare for the thread
+	// running with block flags and other state ignored.
+	priority last
+
+subscribe thread_exited
+
+subscribe scheduler_get_block_properties[SCHEDULER_BLOCK_AFFINITY_CHANGED]
+

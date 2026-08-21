@@ -1,0 +1,14 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface sdei
+
+selector_event sdei_dispatcher_event_get_info
+	selector info: uint32_t
+	param ev_num: sdei_event_number_t
+	return: int64_t = SDEI_RET_INVALID_PARAMETERS
+
+selector_event sdei_dispatcher_features
+	selector feature: uint32_t
+	return: int64_t = SDEI_RET_INVALID_PARAMETERS

@@ -1,0 +1,35 @@
+// © 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface smccc
+
+
+SMCCC_DISPATCH(fast, 32)
+SMCCC_DISPATCH(fast, 64)
+SMCCC_DISPATCH(yielding, 32)
+SMCCC_DISPATCH(yielding, 64)
+
+
+
+SMCCC_CALL_OWNER(arch)
+SMCCC_CALL_OWNER(cpu)
+SMCCC_CALL_OWNER(sip)
+SMCCC_CALL_OWNER(oem)
+SMCCC_CALL_OWNER(standard)
+SMCCC_CALL_OWNER(standard_hyp)
+SMCCC_CALL_OWNER(vendor_hyp)
+
+selector_event smccc_arch_features_fast32
+	selector function: smccc_arch_function_t
+	return: uint32_t = SMCCC_UNKNOWN_FUNCTION32
+selector_event smccc_arch_features_fast64
+	selector function: smccc_arch_function_t
+	return: uint32_t = SMCCC_UNKNOWN_FUNCTION32
+
+selector_event smccc_standard_hyp_features_fast32
+	selector function: smccc_standard_hyp_function_t
+	return: uint32_t = SMCCC_UNKNOWN_FUNCTION32
+selector_event smccc_standard_hyp_features_fast64
+	selector function: smccc_standard_hyp_function_t
+	return: uint32_t = SMCCC_UNKNOWN_FUNCTION32

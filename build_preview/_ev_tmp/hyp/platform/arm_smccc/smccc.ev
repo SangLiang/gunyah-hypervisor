@@ -1,0 +1,9 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module arm_smccc
+
+subscribe boot_cold_init()
+	// Run before psci_osi / psci_pc
+	priority 4

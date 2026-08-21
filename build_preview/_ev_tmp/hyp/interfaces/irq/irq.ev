@@ -1,0 +1,30 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface irq
+
+selector_event irq_registered
+	selector action: hwirq_action_t
+	param irq: irq_t
+	param hwirq: hwirq_t *
+
+selector_event irq_received
+	selector action: hwirq_action_t
+	param irq: irq_t
+	param hwirq: const hwirq_t *
+	// Returns true if the interrupt has been fully handled and should be
+	// deactivated; false if the interrupt has been forwarded to a guest
+	// or queued for deferred handling.
+	return: bool = false
+
+selector_event irq_dispatch
+	selector range_type: irq_range_type_t
+	param irq: irq_t
+	param range: irq_range_t *
+	param offset: size_t
+	return: bool = false
+
+
+event irq_init
+	param boot_cpu_index: cpu_index_t

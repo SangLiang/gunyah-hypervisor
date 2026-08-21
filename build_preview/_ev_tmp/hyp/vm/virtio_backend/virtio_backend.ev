@@ -1,0 +1,52 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module virtio_backend
+
+subscribe object_activate_virtio_backend
+	unwinder(virtio_backend)
+
+subscribe object_deactivate_virtio_backend
+
+subscribe object_cleanup_virtio_backend(virtio_backend)
+
+subscribe virtio_queue_notify[VIRTIO_BACKEND_TYPE_HYPERCALL](virtio, vq)
+
+subscribe virtio_reset_requested[VIRTIO_BACKEND_TYPE_HYPERCALL](virtio)
+	require_spinlock(virtio->status_lock)
+
+subscribe virtio_features_ok_check[VIRTIO_BACKEND_TYPE_HYPERCALL](virtio)
+
+subscribe virtio_driver_ok[VIRTIO_BACKEND_TYPE_HYPERCALL](virtio)
+
+subscribe virtio_failed[VIRTIO_BACKEND_TYPE_HYPERCALL](virtio)
+
+subscribe virtio_device_config_write[VIRTIO_BACKEND_TYPE_HYPERCALL](
+		virtio, offset, access_size, value)
+
+subscribe virtio_device_config_read[VIRTIO_BACKEND_TYPE_HYPERCALL]
+	handler virtio_device_config_read_cached(virtio, offset, access_size)
+
+subscribe virq_check_pending[VIRQ_TRIGGER_VIRTIO_BACKEND]
+	handler virtio_backend_handle_virq_check_pending(source)
+
+subscribe virtio_backend_device_config_write[VIRTIO_DEVICE_TYPE_INVALID]
+	constant ERROR_UNIMPLEMENTED
+
+// Trivial device types: device config is empty, read-only, or asynchronous
+// (possibly conditional on specific features being disabled)
+
+// Network: all config is RO.
+subscribe virtio_backend_valid_device_type[VIRTIO_DEVICE_TYPE_NETWORK]
+	constant true
+
+// Block: all config is RO if F_CONFIG_WCE is disabled.
+subscribe virtio_backend_valid_device_type[VIRTIO_DEVICE_TYPE_BLOCK]
+	constant true
+subscribe virtio_backend_device_set_features[VIRTIO_DEVICE_TYPE_BLOCK]
+	handler virtio_backend_check_block_features(feature_sel, dev_feat)
+
+// Socket: all config is RO.
+subscribe virtio_backend_valid_device_type[VIRTIO_DEVICE_TYPE_SOCKET]
+	constant true

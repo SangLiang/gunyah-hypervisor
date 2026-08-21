@@ -1,0 +1,22 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module irq
+
+subscribe boot_cold_init(boot_cpu_index)
+	// Ensure we run before any handlers requiring interrupts setup
+	priority 5
+
+subscribe object_create_hwirq
+	priority last
+
+subscribe object_activate_hwirq
+	// Run last so the IRQ is not inserted in the global table prematurely
+	priority last
+
+subscribe object_deactivate_hwirq
+	priority first
+
+subscribe irq_dispatch[IRQ_RANGE_TYPE_HWIRQ](irq, range, offset)
+

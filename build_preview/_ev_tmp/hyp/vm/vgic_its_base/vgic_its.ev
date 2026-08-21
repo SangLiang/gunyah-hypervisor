@@ -1,0 +1,37 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vgic_its_base
+
+subscribe object_create_vgic_its
+	priority last
+
+subscribe object_get_defaults_vgic_its
+
+subscribe object_activate_vgic_its
+
+subscribe object_deactivate_vgic_its
+
+subscribe object_cleanup_vgic_its(vgic_its)
+
+subscribe object_deactivate_vic
+
+subscribe object_cleanup_vic(vic)
+
+subscribe rootvm_init(root_partition, root_cspace, hyp_env, qcbor_enc_ctxt)
+
+subscribe addrspace_attach_vdevice
+
+subscribe vdevice_access[VDEVICE_TYPE_VGIC_ITS]
+
+subscribe vdevice_access_fixed_addr
+
+subscribe vic_bind_msi_source
+
+subscribe addrspace_attach_vdma
+
+subscribe range_tree_release_node[RANGE_TREE_NODE_TYPE_VGIC_ITS_DEVICE_RANGE]
+	handler(node)
+
+subscribe rcu_update[RCU_UPDATE_CLASS_VGIC_ITS_DEVICE_RANGE_CLEANUP](entry)

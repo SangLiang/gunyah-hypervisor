@@ -1,0 +1,50 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vpci
+
+subscribe object_create_vpci
+	require_lock(vpci_create.vpci->header.lock)
+
+subscribe object_activate_vpci
+	priority last
+	require_lock(vpci->header.lock)
+
+subscribe object_deactivate_vpci
+
+subscribe object_cleanup_vpci(vpci)
+
+subscribe vdevice_access[VDEVICE_TYPE_VPCI_CAM]
+	handler vpci_vdevice_access_cam(
+		vdevice, offset, access_size, value, is_write)
+	// This should be release_rcu_read. Same for the handlers below.
+	// FIXME: QC Gunyah issue #252
+
+subscribe vdevice_access[VDEVICE_TYPE_VPCI_BAR0]
+	handler vpci_vdevice_access_bar
+
+subscribe vdevice_access[VDEVICE_TYPE_VPCI_BAR1]
+	handler vpci_vdevice_access_bar
+
+subscribe vdevice_access[VDEVICE_TYPE_VPCI_BAR2]
+	handler vpci_vdevice_access_bar
+
+subscribe vdevice_access[VDEVICE_TYPE_VPCI_BAR3]
+	handler vpci_vdevice_access_bar
+
+subscribe vdevice_access[VDEVICE_TYPE_VPCI_BAR4]
+	handler vpci_vdevice_access_bar
+
+subscribe vdevice_access[VDEVICE_TYPE_VPCI_BAR5]
+	handler vpci_vdevice_access_bar
+
+subscribe rcu_update[RCU_UPDATE_CLASS_VPCI_UNMAP_BAR](entry)
+
+subscribe virq_check_pending[VIRQ_TRIGGER_VPCI_IRQA]
+	handler vpci_irq_check_pending
+
+
+subscribe vic_bind_virq
+
+subscribe vic_unbind_virq

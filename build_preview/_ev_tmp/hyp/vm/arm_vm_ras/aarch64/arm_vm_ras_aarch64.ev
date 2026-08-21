@@ -1,0 +1,23 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module arm_vm_ras
+
+subscribe vcpu_activate_thread
+	// Run after pinned flag is set by scheduler.
+	priority -10
+
+subscribe object_deactivate_thread
+
+
+subscribe vcpu_trap_wfi()
+
+// The handlers to inject the SErrors to the RAS VM. Should be the last handlers
+// to let other modules perform any necessary actions first.
+subscribe vcpu_trap_serror(iss)
+	priority last
+
+subscribe preempt_abort()
+	priority last
+

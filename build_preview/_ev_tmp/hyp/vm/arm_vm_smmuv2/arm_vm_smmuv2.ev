@@ -1,0 +1,10 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module arm_vm_smmuv2
+
+subscribe addrspace_attach_vdma
+
+subscribe object_cleanup_vsmmuv2(vsmmuv2)
+	priority last

@@ -1,0 +1,23 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vdebug
+
+subscribe boot_cpu_cold_init()
+
+subscribe boot_cpu_warm_init()
+
+
+subscribe vcpu_save_state()
+
+subscribe thread_context_switch_post(prev)
+
+subscribe vcpu_load_state()
+
+subscribe vcpu_trap_sysreg_read
+	handler vdebug_handle_vcpu_trap_sysreg
+
+subscribe vcpu_trap_sysreg_write
+	handler vdebug_handle_vcpu_trap_sysreg
+

@@ -1,0 +1,10 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module log_standard
+
+subscribe trace_log
+
+subscribe boot_runtime_first_init
+	handler log_init()

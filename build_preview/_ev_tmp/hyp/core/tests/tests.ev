@@ -1,0 +1,29 @@
+// © 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module tests
+
+subscribe boot_hypervisor_start
+	handler tests_thread_init()
+	priority -100
+
+subscribe thread_get_stack_base[THREAD_KIND_TEST]
+
+
+subscribe tests_start
+	handler tests_spinlock_single_lock()
+
+
+subscribe tests_start
+	handler tests_spinlock_multiple_locks()
+
+subscribe thread_get_entry_fn[THREAD_KIND_TEST]
+
+subscribe object_create_thread
+
+subscribe tests_init
+	handler test_print_hyp_version_init()
+
+subscribe tests_run[TESTS_RUN_ID_SMC_0]
+	handler test_print_hyp_version(test_id)

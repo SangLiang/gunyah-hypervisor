@@ -1,0 +1,33 @@
+// © 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface spinlock
+
+include <preempt.h>
+
+// Spinlock events.
+//
+// Note that there are separate events for before and after the various spinlock
+// operations.
+
+event spinlock_init
+	param lock: spinlock_t *
+
+event spinlock_acquire
+	param lock: spinlock_t *
+
+event spinlock_acquired
+	param lock: spinlock_t *
+
+event spinlock_failed
+	param lock: spinlock_t *
+
+event spinlock_release
+	param lock: spinlock_t *
+
+event spinlock_released
+	param lock: spinlock_t *
+
+event spinlock_assert_held
+	param lock: const spinlock_t *

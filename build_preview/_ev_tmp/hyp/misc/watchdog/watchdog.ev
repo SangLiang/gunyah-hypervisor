@@ -1,0 +1,33 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module watchdog
+
+subscribe ipi_received[IPI_REASON_WATCHDOG_SYNC]()
+
+subscribe object_create_watchdog(watchdog_create)
+
+subscribe object_deactivate_watchdog
+
+subscribe boot_cold_init
+	handler watchdog_queue_handle_boot_cold_init()
+	// Slightly higher priority to run this before normal handlers
+	priority 1
+
+subscribe boot_hypervisor_start
+
+subscribe platform_watchdog_bark
+
+subscribe virq_check_pending[VIRQ_TRIGGER_WATCHDOG_BARK]
+	handler watchdog_handle_virq_check_pending_bark(source)
+
+subscribe virq_check_pending[VIRQ_TRIGGER_WATCHDOG_BITE]
+	handler watchdog_handle_virq_check_pending_bite(source)
+
+subscribe abort_kernel
+	priority -1000
+
+subscribe vpm_system_suspend
+
+subscribe vpm_system_resume

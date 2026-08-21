@@ -1,0 +1,29 @@
+// © 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface range_map
+
+// Add an offset to a GPT value.
+// The value can be left unmodified if not applicable.
+selector_event range_map_value_add_offset
+	selector type: range_map_type_t
+	param value: range_map_value_t *
+	param offset: size_t
+	return: void
+
+// Return true if two values of the same type are equal.
+selector_event range_map_values_equal
+	selector type: range_map_type_t
+	param x: range_map_value_t
+	param y: range_map_value_t
+	return: bool = false
+
+// Callback for the GPT type when performing a walk.
+selector_event range_map_walk_callback
+	selector callback: range_map_callback_t
+	param entry: range_map_entry_t
+	param base: size_t
+	param size: size_t
+	param arg: range_map_arg_t
+	return: error_t = ERROR_ARGUMENT_INVALID

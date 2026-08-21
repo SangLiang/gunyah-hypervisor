@@ -1,0 +1,60 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module rcu_bitmap
+
+// Events that activate a CPU. These all run early so handlers with RCU
+// readers will run after the CPU is active.
+subscribe boot_cold_init(boot_cpu_index)
+	priority 100
+
+subscribe boot_cpu_warm_init
+	handler rcu_bitmap_activate_current()
+	priority 100
+
+subscribe idle_block_finish
+	handler rcu_bitmap_activate_current()
+	priority first
+
+subscribe thread_entry_from_user
+	handler rcu_bitmap_activate_current()
+	priority first
+
+subscribe power_cpu_resume
+	handler rcu_bitmap_activate_current()
+	priority 100
+
+subscribe preempt_interrupt()
+
+// Events that deactivate a CPU. These all run late so handlers with RCU
+// readers will run before the CPU is deactivated.
+subscribe idle_block_start
+	handler rcu_bitmap_maybe_deactivate_cpu()
+	priority last
+
+subscribe thread_exit_to_user
+	handler rcu_bitmap_maybe_deactivate_cpu()
+	priority last
+
+subscribe power_cpu_suspend
+	handler rcu_bitmap_try_deactivate_cpu()
+	priority -100
+
+subscribe power_cpu_offline
+	priority last
+
+// Events that quiesce a CPU but don't activate or deactivate it
+subscribe thread_context_switch_pre()
+
+subscribe scheduler_quiescent()
+
+// Handlers for internal IPIs
+subscribe ipi_received[IPI_REASON_RCU_QUIESCE]
+	handler rcu_bitmap_quiesce()
+
+subscribe ipi_received[IPI_REASON_RCU_NOTIFY]
+	handler rcu_bitmap_notify()
+
+subscribe ipi_received[IPI_REASON_RCU_UPDATE]
+	handler rcu_bitmap_update()

@@ -1,0 +1,9 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface range_tree
+
+selector_event range_tree_release_node
+	selector type: range_tree_node_type_t
+	param node: range_tree_node_t *

@@ -1,0 +1,127 @@
+// © 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface scheduler
+
+// All of the events below are called with preemption disabled, and with no
+// locks held other than the scheduler's internal locks, unless stated
+// otherwise.
+
+// This event is triggered during scheduler init for each scheduler block
+// type, so that special properties for each block flag can be set.
+selector_event scheduler_get_block_properties
+	selector block: scheduler_block_t
+	return: scheduler_block_properties_t = scheduler_block_properties_default()
+
+// Stop the kernel.
+// Used when triggering a system crash. This should stop user thread execution
+// on all cores and disable preemption.
+event scheduler_stop
+
+// Triggered after the scheduler runs and elects not to switch threads.
+event scheduler_quiescent
+
+// Triggered after the scheduler selects the next thread to run, which may or
+// may not already be the current thread. If the current thread is selected,
+// this event is triggered before scheduler_quiescent.
+//
+// The can_idle flag is initialised to true if the specified thread can
+// safely idle without running the scheduler; i.e. it is either the idle
+// thread, or it is the only runnable non-idle thread on the CPU. If a module
+// needs to prevent a thread idling without scheduling, it should zero the
+// can_idle flag in a priority>0 handler.
+//
+// The scheduler lock must not be held when this event is triggered, but the
+// caller must either hold an explicit reference to the thread or be in an RCU
+// critical section.
+event scheduler_selected_thread
+	param thread: thread_t *
+	param can_idle: bool *
+
+// Prepare to change a thread's affinity.
+//
+// This event is for cases where we may want to deny certain affinity changes,
+// e.g. the new CPU doesn't support a feature required by the affected VCPU.
+//
+// This event is triggered prior to the scheduler_affinity_changed event. The
+// targeted thread has not yet been blocked and may be running either locally
+// or remotely. The thread's scheduler lock is held.
+//
+// If this event returns an error then the affinity change is aborted.
+setup_event scheduler_set_affinity_prepare
+	param thread: thread_t *
+	param prev_cpu: cpu_index_t
+	param next_cpu: cpu_index_t
+	return: error_t = OK
+	success: OK
+
+// Change a thread's affinity.
+//
+// This event is triggered after a thread is blocked to change affinity. The
+// scheduler lock for the thread is held by the caller, and the thread is not
+// current on any CPU (though it may be the previous thread in a
+// thread_context_switch_post event).
+//
+// If it is necessary to take actions with no lock held, the need_sync
+// parameter can be set to true to trigger a scheduler_affinity_changed_sync
+// event after after a grace period.
+//
+// This event must not fail. If a module needs to prevent affinity changes in
+// some cases, it must be checked in a scheduler_set_affinity_prepare handler,
+// which will be called prior to this event. Note that the scheduler lock may
+// be dropped between these events.
+event scheduler_affinity_changed
+	param thread: thread_t *
+	param prev_cpu: cpu_index_t
+	param next_cpu: cpu_index_t
+	param need_sync: bool *
+
+// Clean up after changing a thread's affinity.
+//
+// This event is triggered after the affinity of a thread is explicitly
+// changed, if requested by a handler for the scheduler_affinity_changed
+// event. It is triggered after a grace period, with no locks held.
+//
+// Modules that handle this event must not assume that they were responsible
+// for triggering it; a different module may have triggered the event.
+event scheduler_affinity_changed_sync
+	param thread: thread_t *
+	param prev_cpu: cpu_index_t
+	param next_cpu: cpu_index_t
+
+// This event is triggered just before the scheduler schedules the next thread.
+// "yielded_from" is the value of CPULOCAL(yielded_from) for this CPU,
+// "schedtime" is the start time of the previous scheduler run, and "curticks"
+// is the start time of this scheduler run.
+event scheduler_schedule
+	param current: thread_t *
+	param yielded_from: thread_t *
+	param schedtime: ticks_t
+	param curticks: ticks_t
+
+// This event is triggered before the scheduler sets a given block flag on a
+// thread, if that flag is not already set.
+//
+// The was_runnable argument is true if the thread was not blocked for any
+// reason prior to setting the block flag (after excluding killable block
+// flags, if the thread has been killed).
+//
+// The scheduler lock for the thread is held by the caller.
+event scheduler_blocked
+	param thread: thread_t *
+	param block: scheduler_block_t
+	param was_runnable: bool
+
+// This event is triggered after the scheduler clears a given block flag on a
+// thread, if that flag was not already clear.
+//
+// The now_runnable argument is true if the thread will not be blocked for any
+// reason after to this event (after excluding killable block flags, if the
+// thread has been killed).
+//
+// The scheduler lock for the thread is held by the caller.
+event scheduler_unblocked
+	param thread: thread_t *
+	param block: scheduler_block_t
+	param now_runnable: bool

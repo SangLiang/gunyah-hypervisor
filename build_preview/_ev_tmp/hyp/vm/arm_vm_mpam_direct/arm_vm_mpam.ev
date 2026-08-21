@@ -1,0 +1,8 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module arm_vm_mpam_direct
+
+subscribe boot_cold_init()
+

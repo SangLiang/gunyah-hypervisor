@@ -1,0 +1,25 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module addrspace
+
+subscribe boot_cold_init()
+
+
+subscribe object_create_addrspace(addrspace_create)
+	unwinder addrspace_unwind_object_create_addrspace(addrspace_create)
+
+subscribe object_cleanup_addrspace(addrspace)
+
+subscribe object_activate_addrspace
+	priority last
+
+subscribe object_deactivate_addrspace
+	handler addrspace_destroy_pgtables
+	priority first
+
+subscribe object_deactivate_addrspace
+	priority last
+
+

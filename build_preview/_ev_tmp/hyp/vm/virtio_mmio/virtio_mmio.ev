@@ -1,0 +1,26 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module virtio_mmio
+
+subscribe virtio_startup[VIRTIO_TRANSPORT_TYPE_MMIO](virtio)
+
+subscribe virtio_shutdown[VIRTIO_TRANSPORT_TYPE_MMIO](virtio)
+
+subscribe virtio_config_update_begin[VIRTIO_TRANSPORT_TYPE_MMIO](virtio)
+
+subscribe virtio_config_update_end[VIRTIO_TRANSPORT_TYPE_MMIO](virtio)
+
+subscribe virtio_queue_ready[VIRTIO_TRANSPORT_TYPE_MMIO](virtio, vq)
+
+subscribe virtio_status_updated[VIRTIO_TRANSPORT_TYPE_MMIO](virtio, new_status)
+	require_spinlock(virtio->status_lock)
+
+subscribe virq_check_pending[VIRQ_TRIGGER_VIRTIO_MMIO_FRONTEND]
+	handler virtio_mmio_frontend_handle_virq_check_pending(source)
+
+subscribe vdevice_access[VDEVICE_TYPE_VIRTIO_MMIO](
+		vdevice, offset, access_size, value, is_write)
+	// This should be release_rcu_read.
+	// FIXME: QC Gunyah issue #252

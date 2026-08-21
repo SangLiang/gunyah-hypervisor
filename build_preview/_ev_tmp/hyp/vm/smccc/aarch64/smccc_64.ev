@@ -1,0 +1,17 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module smccc
+
+subscribe vcpu_trap_smc64(iss)
+
+subscribe vcpu_trap_hvc64(iss)
+
+subscribe vcpu_trap_smc64
+	handler smccc_handle_vcpu_trap_smc64_default(iss)
+	priority last
+
+subscribe vcpu_trap_hvc64
+	handler smccc_handle_vcpu_trap_hvc64_default(iss)
+	priority last

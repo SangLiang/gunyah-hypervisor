@@ -1,0 +1,30 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module power
+
+subscribe boot_cold_init
+	priority 90
+
+subscribe boot_cpu_warm_init
+	priority first
+
+subscribe power_cpu_resume(was_poweroff)
+	priority first
+
+subscribe power_cpu_suspend(state)
+	priority last
+
+// This has higher priority than PSCI to avoid PSCI put the core into CPU_SUSPEND first
+subscribe idle_yield
+	priority 100
+
+subscribe timer_action[TIMER_ACTION_POWER_CPU_ON_RETRY]
+	handler power_handle_timer_action(timer)
+
+
+subscribe boot_hypervisor_handover
+	priority first
+
+

@@ -1,0 +1,223 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface memextent
+
+selector_event memextent_activate
+	selector type: memextent_type_t
+	param me: memextent_t *
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_activate_derive
+	selector type: memextent_type_t
+	param me: memextent_t *
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+// Transfer the ownership of a specified memory region between two extents. If
+// one of the from_me or to_me arguments is NULL, ownership is transferred to
+// or from the partition instead.
+//
+// The memdb update is a priority-0 action for this event. For other actions,
+// note that:
+//
+// 1.	Handlers must not be registered with default or 0 priority, to avoid
+//	accidentally reordering them relative to the memdb update.
+//
+// 2.	Handlers with a positive priority are called before the memory range
+//	is known to be owned by from_me. Therefore, any handler with a
+//	positive priority must be safe to perform on arbitrary memory ranges,
+//	and must not write to the memory range nor expose it to external
+//	observers. The same is true for any unwinder with a positive priority.
+//
+// 3.	Handlers or unwinders that may modify the memory range or expose the
+//	contents of protected memory to external observers must have negative
+//	priority.
+//
+// 4.	Handlers that are called after the memdb transfer should avoid failing,
+//	especially if to_me is NULL, because a race with a partition donate
+//	operation may prevent a memdb transfer to the parent partition being
+//	unwound, leading to a panic. Therefore, actions that can fail should
+//	have positive priority if possible, subject to the preceding points.
+setup_event memextent_change_ownership
+	param partition: partition_t *
+	param from_me: memextent_t *
+	param to_me: memextent_t *
+	param phys: paddr_t
+	param size: size_t
+	return: error_t = OK
+	success: OK
+
+selector_event memextent_supports_donation
+	selector type: memextent_type_t
+	param me: memextent_t *
+	return: bool = false
+
+selector_event memextent_donate_child
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param phys: paddr_t
+	param size: size_t
+	param reverse: bool
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_donate_sibling
+	selector type: memextent_type_t
+	param from: memextent_t *
+	param to: memextent_t *
+	param phys: paddr_t
+	param size: size_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_donate_protected_reclaim
+	selector type: memextent_type_t
+	param from: memextent_t *
+	param phys: paddr_t
+	param size: size_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_donate_device
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param phys: paddr_t
+	param size: size_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_map
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param addrspace: addrspace_t *
+	param vm_base: vmaddr_t
+	param map_attrs: memextent_mapping_attrs_t
+	param map_flags: addrspace_map_flags_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_map_partial
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param addrspace: addrspace_t *
+	param vm_base: vmaddr_t
+	param offset: size_t
+	param size: size_t
+	param map_attrs: memextent_mapping_attrs_t
+	param map_flags: addrspace_map_flags_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_unmap
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param addrspace: addrspace_t *
+	param vm_base: vmaddr_t
+	param map_flags: addrspace_map_flags_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_unmap_whole_extent
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param addrspace: addrspace_t *
+	param map_flags: addrspace_map_flags_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_unmap_partial
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param addrspace: addrspace_t *
+	param vm_base: vmaddr_t
+	param offset: size_t
+	param size: size_t
+	param map_flags: addrspace_map_flags_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_sync_all
+	selector type: memextent_type_t
+	param me: memextent_t *
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_unmap_all
+	selector type: memextent_type_t
+	param me: memextent_t *
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_update_access
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param addrspace: addrspace_t *
+	param vm_base: vmaddr_t
+	param access_attrs: memextent_access_attrs_t
+	param map_flags: addrspace_map_flags_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_update_access_partial
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param addrspace: addrspace_t *
+	param vm_base: vmaddr_t
+	param offset: size_t
+	param size: size_t
+	param access_attrs: memextent_access_attrs_t
+	param map_flags: addrspace_map_flags_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_is_mapped
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param addrspace: addrspace_t *
+	param exclusive: bool
+	return: bool = false
+
+selector_event memextent_deactivate
+	selector type: memextent_type_t
+	param me: memextent_t *
+	return: bool = false
+
+selector_event memextent_cleanup
+	selector type: memextent_type_t
+	param me: memextent_t *
+	return: bool = false
+
+selector_event memextent_retain_mappings
+	selector type: memextent_type_t
+	param me: memextent_t *
+
+selector_event memextent_release_mappings
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param clear: bool
+
+selector_event memextent_lookup_mapping
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param phys: paddr_t
+	param size: size_t
+	param i: index_t
+	return: memextent_mapping_result_t = memextent_mapping_result_error(ERROR_MEMEXTENT_TYPE)
+
+selector_event memextent_attach
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param hyp_va: uintptr_t
+	param size: size_t
+	param memtype: pgtable_hyp_memtype_t
+	return: error_t = ERROR_MEMEXTENT_TYPE
+
+selector_event memextent_detach
+	selector type: memextent_type_t
+	param me: memextent_t *
+	return: bool = false
+
+selector_event memextent_get_mapped_size
+	selector type: memextent_type_t
+	param me: const memextent_t *
+	return: size_result_t = size_result_error(ERROR_ARGUMENT_INVALID)
+
+selector_event memextent_get_offset_for_pa
+	selector type: memextent_type_t
+	param me: memextent_t *
+	param pa: paddr_t
+	param size: size_t
+	return: size_result_t = size_result_error(ERROR_MEMEXTENT_TYPE)
+
+handled_event memextent_set_sanitise_on_reset
+	param extent: memextent_t *
+	param phys: paddr_t
+	param size: size_t

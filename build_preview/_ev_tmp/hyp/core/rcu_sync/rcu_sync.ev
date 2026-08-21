@@ -1,0 +1,9 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module rcu_sync
+
+subscribe rcu_update[RCU_UPDATE_CLASS_SYNC_COMPLETE]
+	handler rcu_sync_handle_update(entry)
+

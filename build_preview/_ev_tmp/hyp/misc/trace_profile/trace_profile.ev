@@ -1,0 +1,11 @@
+// © 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module trace_profile
+
+subscribe thread_entry_from_user_trace
+
+subscribe thread_exit_to_user_trace
+
+subscribe ipi_received_trace

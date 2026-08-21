@@ -1,0 +1,19 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface watchdog
+
+// Triggered before patting a watchdog object.
+//
+// This event is triggered so any necessary bark/bite adjustments could be done
+// before the watchdog is patted.
+event watchdog_pat_pre
+	param wdt: watchdog_t *
+
+// Triggered when a non-hypervisor watchdog bite occurs.
+//
+// This event is triggered with the watchdog queue lock released.
+handled_event watchdog_non_hyp_bite
+	param wdt: watchdog_t *
+	return: bool = false

@@ -1,0 +1,93 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module memextent_sparse
+
+subscribe range_map_value_add_offset[RANGE_MAP_TYPE_MEMEXTENT_MAPPING]
+	handler memextent_mapping_add_offset(value, offset)
+
+subscribe range_map_values_equal[RANGE_MAP_TYPE_MEMEXTENT_MAPPING]
+	handler memextent_mappings_equal(x, y)
+
+subscribe range_map_walk_callback[RANGE_MAP_CALLBACK_MEMEXTENT_UNMAP]
+	handler memextent_unmap_range_map_entry(entry, base, size, arg)
+
+subscribe memextent_activate[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_activate_sparse(me)
+
+subscribe memextent_activate_derive[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_activate_derive_sparse(me)
+
+subscribe memextent_supports_donation[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_supports_donation_sparse()
+
+subscribe memextent_donate_child[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_donate_child_sparse(me, phys, size, reverse)
+
+subscribe memextent_donate_sibling[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_donate_sibling_sparse(from, to, phys, size)
+
+subscribe memextent_donate_protected_reclaim[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_donate_protected_reclaim_sparse(from, phys, size)
+
+subscribe memextent_donate_device[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_donate_device_sparse(me, phys, size)
+
+subscribe memextent_map[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_map_sparse(
+		me, addrspace, vm_base, map_attrs, map_flags)
+
+subscribe memextent_map_partial[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_map_partial_sparse(
+		me, addrspace, vm_base, offset, size, map_attrs, map_flags)
+
+subscribe memextent_unmap[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_unmap_sparse(me, addrspace, vm_base, map_flags)
+
+subscribe memextent_unmap_partial[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_unmap_partial_sparse(
+		me, addrspace, vm_base, offset, size, map_flags)
+
+subscribe memextent_unmap_whole_extent[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_unmap_whole_extent_sparse(me, addrspace, map_flags)
+
+subscribe memextent_sync_all[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_sync_all_sparse(me)
+
+subscribe memextent_unmap_all[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_unmap_all_sparse(me)
+
+subscribe memextent_update_access[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_update_access_sparse(
+		me, addrspace, vm_base, access_attrs, map_flags)
+
+subscribe memextent_update_access_partial[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_update_access_partial_sparse(
+		me, addrspace, vm_base, offset, size, access_attrs,
+		map_flags)
+
+subscribe memextent_is_mapped[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_is_mapped_sparse(me, addrspace, exclusive)
+
+subscribe memextent_deactivate[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_deactivate_sparse(me)
+
+subscribe memextent_cleanup[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_cleanup_sparse(me)
+
+subscribe memextent_retain_mappings[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_retain_mappings_sparse(me)
+
+subscribe memextent_release_mappings[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_release_mappings_sparse(me, clear)
+
+subscribe memextent_lookup_mapping[MEMEXTENT_TYPE_SPARSE]
+	handler memextent_lookup_mapping_sparse(me, phys, size, i)
+
+subscribe object_create_addrspace
+	handler memextent_create_addrspace_sparse
+
+subscribe object_deactivate_addrspace
+	handler memextent_deactivate_addrspace_sparse
+

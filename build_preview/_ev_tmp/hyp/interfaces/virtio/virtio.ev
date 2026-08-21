@@ -1,0 +1,154 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface virtio
+
+//
+// Backend events
+//
+// These may be exposed to a host VM through VIRQ payloads and/or hypercalls,
+// or handled internally. Since they are triggered by the frontend which uses
+// RCU-protected pointers, all of these handlers are called from RCU critical
+// sections. Handlers that can block should drop the RCU critical section first.
+//
+
+// Inform the backend that a queue has new buffers ready.
+selector_event virtio_queue_notify
+	selector backend: virtio_backend_type_t
+	param virtio: virtio_t *
+	param vq: index_t
+	return: void
+
+// Inform the backend that the guest has written 0 to the status register
+// to request a reset. This is called with a spinlock held.
+selector_event virtio_reset_requested
+	selector backend: virtio_backend_type_t
+	param virtio: virtio_t *
+	return: void
+
+// Inform the backend that the guest has tried to set the features_ok bit, and
+// the device is configured for synchronous feature enablement. The backend
+// must read and validate the features, then call virtio_ack_features_ok().
+selector_event virtio_features_ok_check
+	selector backend: virtio_backend_type_t
+	param virtio: virtio_t *
+	return: error_t = ERROR_UNIMPLEMENTED
+
+// Inform the backend that the guest has set the driver_ok bit in the status,
+// meaning that the device is now active. This is called with a spinlock held.
+selector_event virtio_driver_ok
+	selector backend: virtio_backend_type_t
+	param virtio: virtio_t *
+	return: error_t = ERROR_UNIMPLEMENTED
+
+// Inform the backend that the guest has set the failed bit in the status,
+// meaning that the guest is no longer able to make use of the device.
+selector_event virtio_failed
+	selector backend: virtio_backend_type_t
+	param virtio: virtio_t *
+	return: error_t = ERROR_UNIMPLEMENTED
+
+// Post a write to the device specific configuration registers.
+//
+// A handler for this event is allowed to block until the write is complete.
+//
+// Alternatively, the write may be handled asynchronously by the backend, in
+// which case any subsequent virtio_device_config_read must block until the
+// write is complete before executing the read.
+selector_event virtio_device_config_write
+	selector backend: virtio_backend_type_t
+	param virtio: virtio_t *
+	param offset: size_t
+	param access_size: size_t
+	param value: uint32_t
+	return: error_t = ERROR_UNIMPLEMENTED
+
+// Read from the device specific configuration registers.
+//
+// A handler for this event is allowed to block until the read is complete.
+//
+// There is no fallback behaviour for this event if no handler is registered;
+// all trapped reads will fault in that case. If the backend wants to use the
+// configuration cache to complete reads, virtio_device_config_read_cached()
+// should be registered as the handler or called by a module-specific handler.
+selector_event virtio_device_config_read
+	selector backend: virtio_backend_type_t
+	param virtio: virtio_t *
+	param offset: size_t
+	param access_size: size_t
+	return: uint32_result_t = uint32_result_error(ERROR_UNIMPLEMENTED)
+
+//
+// Frontend events
+//
+// These are handled by transport implementations.
+//
+
+// Allocate and configure a frontend.
+selector_event virtio_startup
+	selector transport: virtio_transport_type_t
+	param virtio: virtio_t *
+	return: error_t = ERROR_UNIMPLEMENTED
+
+// Deactivate a frontend.
+//
+// Note that other frontend events may be received for up to one RCU grace
+// period after this function returns, and the virtio structure will persist
+// for at least that long. If the frontend allocates its own storage, this
+// event's handler should enqueue an RCU update to free it.
+selector_event virtio_shutdown
+	selector transport: virtio_transport_type_t
+	param virtio: virtio_t *
+	return: void
+
+// Inform the frontend that a synchronised features_ok is complete. This is
+// only triggered if the device was configured with the feature sync flag set.
+// It is called with the status lock held, but before the status field is
+// updated.
+selector_event virtio_ack_features_ok
+	selector transport: virtio_transport_type_t
+	param virtio: virtio_t *
+	return: error_t = ERROR_UNIMPLEMENTED
+
+// Inform the frontend that a non-atomic config update is starting. This is
+// called after the update starts, so it cannot fail.
+selector_event virtio_config_update_begin
+	selector transport: virtio_transport_type_t
+	param virtio: virtio_t *
+	return: void
+
+// Inform the frontend that a config update is complete. This is called after
+// the update ends, so it cannot fail.
+selector_event virtio_config_update_end
+	selector transport: virtio_transport_type_t
+	param virtio: virtio_t *
+	return: void
+
+// Inform the frontend that a queue has had buffers consumed. If the queue
+// index is VIRTIO_QUEUE_UNSPECIFIED, a frontend that is using per-queue IRQs
+// may fail.
+selector_event virtio_queue_ready
+	selector transport: virtio_transport_type_t
+	param virtio: virtio_t *
+	param vq: index_t
+	return: error_t = ERROR_UNIMPLEMENTED
+
+// Inform the frontend that a requested reset is complete. This is called
+// after the reset completes, so it cannot fail. It is called with the
+// status lock held, but before the status register is updated.
+selector_event virtio_reset_complete
+	selector transport: virtio_transport_type_t
+	param virtio: virtio_t *
+	return: void
+
+// Inform the frontend that the status has changed. It is called with the
+// status lock held, after the status field of the virtio structure has been
+// updated. If the status change was a synchronous event completion triggered
+// by the backend, it is called after the more specific event handlers,
+// virtio_reset_complete and virtio_ack_features_ok.
+selector_event virtio_status_updated
+	selector transport: virtio_transport_type_t
+	param virtio: virtio_t *
+	param new_status: virtio_status_t
+	return: void

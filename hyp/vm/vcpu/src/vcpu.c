@@ -67,6 +67,13 @@ vcpu_handle_object_create_thread(thread_create_t thread_create)
 	return ret;
 }
 
+// object_activate_thread 的 VCPU 侧处理：线程对象从“已配置”进入“可运行”
+// 前的最后校验。vcpu.ev 里以 priority -100 订阅，尽量靠后执行。
+//
+// 非 VCPU 线程直接返回 OK。VCPU 必须已绑定 cspace，且 affinity 若是合法
+// CPU 下标，对应物理核必须存在。随后清空 configure 阶段留下的
+// vcpu_options，再触发 vcpu_activate_thread，让各模块重新写入经过检查的
+// 选项；任一失败则返回 ERROR_OBJECT_CONFIG，激活失败并走 unwind。
 error_t
 vcpu_handle_object_activate_thread(thread_t *thread)
 {
@@ -75,20 +82,21 @@ vcpu_handle_object_activate_thread(thread_t *thread)
 	assert(thread != NULL);
 
 	if (vcpu_is_vcpu(thread)) {
+		// VCPU 通过 hypercall 操作对象，必须挂在某个 cspace 上
 		if (thread->cspace_cspace == NULL) {
 			ret = ERROR_OBJECT_CONFIG;
 			goto out;
 		}
 
+		// affinity 已是合法 CPU 下标时，还要确认平台上真有这颗核
 		if (cpulocal_index_valid(thread->scheduler_affinity) &&
 		    !platform_cpu_exists(thread->scheduler_affinity)) {
 			ret = ERROR_OBJECT_CONFIG;
 			goto out;
 		}
 
-		// Reset thread's vcpu_options. Event handlers can set them
-		// again. This prevents unchecked options from configure phase
-		// being left in the thread options.
+		// 重置线程的 vcpu_options。事件 handler 可以再次设置它们。
+		// 这样可避免 configure 阶段未经检查的选项残留在线程选项里。
 		vcpu_option_flags_t options = thread->vcpu_options;
 		thread->vcpu_options	    = vcpu_option_flags_default();
 

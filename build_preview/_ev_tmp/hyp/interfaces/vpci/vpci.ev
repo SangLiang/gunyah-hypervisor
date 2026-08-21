@@ -1,0 +1,87 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface vpci
+
+// Handle a vpci_attach hypercall.
+//
+// Each module that implements a vPCI device should look up device_cap as its
+// corresponding object type, with any necessary rights. If the lookup is
+// successful, then a vpci_device structure should be initialised with
+// appropriate BAR and capability structures, and passed to vpci_bind_device()
+// along with the given slot parameter.
+handled_event vpci_attach
+	param vpci: vpci_t *
+	param slot: index_t *
+	param device_cap: cap_id_t
+	return: error_t = ERROR_CSPACE_WRONG_OBJECT_TYPE
+
+// Handle a trapped configuration space access.
+//
+// If the device has set a non-NULL linked list of capability structures, the
+// framework will search for the capability structure that contains the first
+// byte of the access, and provide a pointer to it. In this case the offset is
+// relative to the start of the capability structure. The framework handles
+// accesses to the first two bytes (next pointer and ID) of any capability
+// structure, and also to the third byte (size) of a vendor-defined capability
+// structure (cap_id == 0x09).
+//
+// If the capability pointer is NULL, no capability structure could be found
+// that contains the first accessed address, and the offset is relative to the
+// start of configuration space. Note that this does not mean that the entire
+// access is necessarily outside any capability structure.
+selector_event vpci_config_read
+	selector type: vpci_function_type_t
+	param function: vpci_function_t *
+	param capability: vpci_capability_data_t *
+	param offset: size_t
+	param access_size: size_t
+	return: register_result_t = register_result_error(ERROR_UNIMPLEMENTED)
+
+selector_event vpci_config_write
+	selector type: vpci_function_type_t
+	param function: vpci_function_t *
+	param capability: vpci_capability_data_t *
+	param offset: size_t
+	param access_size: size_t
+	param data: register_t
+	return: error_t = ERROR_UNIMPLEMENTED
+
+// Handle a trapped access to a region mapped by a BAR.
+//
+// If the offset specifies an object that has a size that is greater than the
+// specified access size, the device should return the partial value for a
+// read, or perform a partial update of the value for a write. Alternatively,
+// if the BAR maps a non-prefetchable memory or I/O region, the handler may
+// treat the access as invalid.
+selector_event vpci_bar_read
+	selector type: vpci_function_type_t
+	param function: vpci_function_t *
+	param bar_index: index_t
+	param offset: size_t
+	param access_size: size_t
+	return: register_result_t = register_result_error(ERROR_UNIMPLEMENTED)
+
+selector_event vpci_bar_write
+	selector type: vpci_function_type_t
+	param function: vpci_function_t *
+	param bar_index: index_t
+	param offset: size_t
+	param access_size: size_t
+	param data: register_t
+	return: error_t = ERROR_UNIMPLEMENTED
+
+// Check the pending state of a function's legacy IRQ source.
+//
+// This may be called by the virq_check_pending handler after a call to
+// vpci_irq_assert(), either by the specified function or by another function
+// that shares the same IRQ line. It may also be called when the function's
+// status register is read, or the int disable bit is cleared in the
+// function's command register.
+//
+// The handler for this event should not have any side-effects.
+selector_event vpci_irq_check_pending
+	selector type: vpci_function_type_t
+	param function: vpci_function_t *
+	return: bool = false

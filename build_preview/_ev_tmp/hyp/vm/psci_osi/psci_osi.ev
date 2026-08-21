@@ -1,0 +1,22 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module psci_osi
+
+
+PSCI_FUNCTION(SYSTEM_SUSPEND, 0U, osi_system_suspend, arg1, arg2, ret0)
+PSCI_FUNCTION32(PSCI_SET_SUSPEND_MODE, 0U, osi_set_suspend_mode, arg1, ret0)
+
+subscribe boot_cold_init()
+
+subscribe boot_cpu_cold_init
+
+subscribe object_activate_vpm_group
+
+subscribe idle_yield
+	// Run late, but before handlers that may sleep, to check
+	// whether we should suspend the physical CPU instead
+	priority -10
+
+subscribe thread_context_switch_pre()

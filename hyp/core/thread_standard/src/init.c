@@ -28,6 +28,7 @@ thread_standard_handle_boot_runtime_warm_init(thread_t *boot_thread)
 	thread_switch_boot_thread(boot_thread);
 }
 
+// init函数执行完后停留在这里，等待调度器调度
 noreturn void
 thread_boot_set_idle(void)
 {

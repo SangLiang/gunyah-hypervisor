@@ -1,0 +1,19 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface preempt
+
+// Triggered by preempt_interrupt_dispatch() when an interrupt occurs.
+handled_event preempt_interrupt
+
+// Triggered by preempt_abort_dispatch() when an asynchronous abort occurs.
+handled_event preempt_abort
+
+// Triggered when preempt_check() is called at preemption points.
+//
+// Handlers may return true if there is a pending event which is likely to
+// preempt execution of the current thread once preemption is enabled.
+//
+// This is always called with preemption disabled.
+handled_event preempt_check

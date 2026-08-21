@@ -1,0 +1,9 @@
+// © 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module rootvm
+
+subscribe boot_hypervisor_start
+	handler rootvm_init()
+	priority last

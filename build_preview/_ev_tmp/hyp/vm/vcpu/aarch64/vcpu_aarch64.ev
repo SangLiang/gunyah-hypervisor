@@ -1,0 +1,82 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vcpu
+
+// core initialization
+
+subscribe boot_runtime_first_init
+	handler vcpu_handle_boot_runtime_init()
+subscribe boot_runtime_warm_init
+	handler vcpu_handle_boot_runtime_init()
+subscribe boot_cpu_warm_init()
+
+// new vcpu handlers
+
+subscribe object_deactivate_thread
+
+subscribe vcpu_activate_thread
+
+subscribe thread_get_entry_fn[THREAD_KIND_VCPU] ()
+
+subscribe object_create_thread
+	handler vcpu_arch_handle_object_create_thread
+
+
+// vcpu context_switch handlers
+
+subscribe vcpu_save_state
+	handler vcpu_context_switch_save
+
+subscribe vcpu_save_state
+	handler vcpu_context_switch_cpu_save
+
+subscribe vcpu_load_state
+	handler vcpu_context_switch_load()
+
+subscribe vcpu_load_state
+	handler vcpu_context_switch_cpu_load()
+
+// vcpu register trap handlers
+
+subscribe vcpu_trap_sysreg_read
+	handler sysreg_read
+
+subscribe vcpu_trap_sysreg_read
+	handler sysreg_read_cpu
+	priority 1
+
+subscribe vcpu_trap_sysreg_read
+	handler sysreg_read_fallback
+	priority last
+
+subscribe vcpu_trap_sysreg_write
+	handler sysreg_write
+	priority first
+
+subscribe vcpu_trap_sysreg_write
+	handler sysreg_write_cpu
+	priority 1
+
+subscribe vcpu_trap_sysreg_write
+	handler sysreg_write_fallback
+	priority last
+
+subscribe vcpu_trap_brk_instruction_guest
+	priority last
+
+// VCPU idle traps and wakeups
+
+subscribe scheduler_selected_thread(thread, can_idle)
+
+subscribe vcpu_trap_wfi
+	priority last
+
+subscribe thread_exit_to_user()
+
+
+
+// VCPU lifecycle and power management
+
+subscribe rootvm_init(root_thread)

@@ -1,0 +1,10 @@
+// © 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+interface tests
+
+event tests_init
+
+handled_event tests_start
+

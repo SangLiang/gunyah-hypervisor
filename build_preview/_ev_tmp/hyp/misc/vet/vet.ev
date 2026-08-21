@@ -1,0 +1,18 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vet
+
+subscribe boot_cold_init()
+
+subscribe thread_context_switch_pre()
+
+subscribe vcpu_load_state()
+
+subscribe vcpu_activate_thread
+
+subscribe power_cpu_suspend(may_poweroff)
+	unwinder()
+
+subscribe power_cpu_resume(was_poweroff)

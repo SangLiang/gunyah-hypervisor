@@ -1,0 +1,9 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vetm_null
+
+
+subscribe vdevice_access_fixed_addr
+

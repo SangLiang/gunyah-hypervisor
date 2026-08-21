@@ -68,19 +68,40 @@ thread_arch_main(thread_t *prev, ticks_t schedtime) LOCK_IMPL
 	thread_exit();
 }
 
+// AArch64 架构下的线程上下文切换函数。
+//
+// 功能：保存当前（旧）线程的 PC/SP/FP 到其 context 结构，加载下一个（新）
+// 线程的 SP/FP/TLS 基址，然后通过寄存器间接跳转（BR）切换到新线程的 PC，
+// 完成线程切换。这是 hypervisor 调度器执行线程切换的核心入口。
+//
+// 关键设计要点：
+//   1. 旧线程的 PC/SP/FP 必须先保存到 old->context，以便下次切回该线程时
+//      能从断点处继续执行；新线程的 PC/SP/FP 则来自 next_thread->context
+//      （新线程首次运行时由 thread_arch_init_context() 设置）。
+//   2. TPIDR_EL2 用作线程本地存储（TLS）基址指针，切换时一并更新，使
+//      thread_get_self() 等基于 TLS 的访问能定位到正确的 thread_t 结构。
+//   3. 新线程的 PC 放入 x16/x17，以兼容 ARMv8.5-BTI：BTI 要求间接跳转的
+//      目标寄存器为 x16/x17 时，BR 才被视作合法的调用跳转板，允许跳转到
+//      入口处的 BTI C 指令，否则会触发分支目标异常。
+//   4. 通过内联汇编一次性完成"保存旧上下文 + 加载新上下文 + 跳转"，避免
+//      中间状态被中断破坏；clobber 列表与硬绑定寄存器、显式保存的
+//      x29/sp/pc 的并集必须覆盖全部整数寄存器状态，保证编译器不会误用。
+//   5. 调度时间片（ticks）通过 x0/x1 在线程间传递：切出方把剩余时间写
+//      入 x1，切入方（thread_arch_main）作为参数接收，本函数末尾再将其
+//      回写到 *schedtime，供调度器统计。
+//
+// 返回值：返回被切出的旧线程指针（old），供调用方进行引用计数等清理。
 thread_t *
 thread_arch_switch_thread(thread_t *next_thread, ticks_t *schedtime)
 {
-	// The previous thread and the scheduling time must be kept in X0 and X1
-	// to ensure that thread_arch_main() receives them as arguments on the
-	// first context switch.
+	// 旧线程指针和调度时间片必须保存在 X0 和 X1 中，以确保
+	// thread_arch_main() 在首次上下文切换时能将它们作为参数接收到。
 	register thread_t *old __asm__("x0")   = thread_get_self();
 	register ticks_t   ticks __asm__("x1") = *schedtime;
 
-	// The remaining hard-coded registers here are only needed to ensure a
-	// correct clobber list below. The union of the clobber list, hard-coded
-	// registers and explicitly saved registers (x29, sp and pc) must be the
-	// entire integer register state.
+	// 此处其余硬绑定的寄存器只是为了保证下方 clobber 列表正确。
+	// clobber 列表、硬绑定寄存器与显式保存的寄存器（x29、sp、pc）的并集
+	// 必须覆盖全部整数寄存器状态。
 	register register_t old_pc __asm__("x2");
 	register register_t old_sp __asm__("x3");
 	register register_t old_fp __asm__("x4");
@@ -95,9 +116,8 @@ thread_arch_switch_thread(thread_t *next_thread, ticks_t *schedtime)
 			       sizeof(next_thread->context.sp)),
 		      "SP and FP must be adjacent in context");
 
-	// The new PC must be in x16 or x17 so ARMv8.5-BTI will treat the BR
-	// below as a call trampoline, and thus allow it to jump to the BTI C
-	// instruction at a new thread's entry point.
+	// 新线程的 PC 必须放在 x16 或 x17 中，这样 ARMv8.5-BTI 才会把下方的
+	// BR 当作调用跳转板，从而允许它跳转到新线程入口点处的 BTI C 指令。
 	register register_t new_pc __asm__("x16") = next_thread->context.pc;
 	register register_t new_sp __asm__("x6")  = next_thread->context.sp;
 	register register_t new_fp __asm__("x7")  = next_thread->context.fp;
@@ -105,30 +125,30 @@ thread_arch_switch_thread(thread_t *next_thread, ticks_t *schedtime)
 		thread_get_tls_base(next_thread);
 
 	__asm__ volatile(
-		"adr	%[old_pc], .Lthread_continue.%=		;"
-		"mov	%[old_sp], sp				;"
-		"mov	%[old_fp], x29				;"
-		"mov   sp, %[new_sp]				;"
-		"mov   x29, %[new_fp]				;"
-		"msr	TPIDR_EL2, %[new_tls_base]		;"
-		"stp	%[old_pc], %[old_sp], [%[old_context]]	;"
-		"str	%[old_fp], [%[old_context], 16]		;"
-		"br	%[new_pc]				;"
-		".Lthread_continue.%=:				;"
+		"adr	%[old_pc], .Lthread_continue.%=		;" // 旧线程恢复点：切换回来时从这里继续
+		"mov	%[old_sp], sp				;" // 保存当前 SP
+		"mov	%[old_fp], x29				;" // 保存当前 FP（x29）
+		"mov   sp, %[new_sp]				;" // 切换到新线程的 SP
+		"mov   x29, %[new_fp]				;" // 切换到新线程的 FP
+		"msr	TPIDR_EL2, %[new_tls_base]		;" // 切换 TLS 基址寄存器
+		"stp	%[old_pc], %[old_sp], [%[old_context]]	;" // 保存旧线程的 PC、SP 到 context
+		"str	%[old_fp], [%[old_context], 16]		;" // 保存旧线程的 FP 到 context
+		"br	%[new_pc]				;" // 跳转到新线程的 PC（完成切换）
+		".Lthread_continue.%=:				;" // 旧线程被切回时从此处继续执行
 #if defined(ARCH_ARM_FEAT_BTI)
-		"bti	j					;"
+		"bti	j					;" // BTI 跳转指令，标记此处为合法的间接跳转目标
 #endif
 		: [old] "+r"(old), [old_pc] "=&r"(old_pc),
 		  [old_sp] "=&r"(old_sp), [old_fp] "=&r"(old_fp),
 		  [old_context] "+r"(old_context), [new_pc] "+r"(new_pc),
 		  [new_sp] "+r"(new_sp), [new_fp] "+r"(new_fp),
 		  [new_tls_base] "+r"(new_tls_base), [ticks] "+r"(ticks)
-		: /* This must not have any inputs */
+		: /* 此处不能有任何输入操作数 */
 		: "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x17", "x18",
 		  "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27",
 		  "x28", "x30", "cc", "memory");
 
-	// Update schedtime from the tick count passed by the previous thread
+	// 从上一个线程传递过来的 tick 计数更新调度时间
 	*schedtime = ticks;
 
 	return old;
@@ -255,6 +275,20 @@ thread_reset_stack(fptr_noreturn_t fn, register_t param)
 	panic("returned to thread_reset_stack()");
 }
 
+// 初始化新线程的 CPU 上下文（PC、SP、FP），使其在首次被调度切换到时，
+// 能够正确跳转到线程入口并使用该线程专属的栈空间。
+//
+// - PC 设为 thread_arch_main：这是新线程第一次运行时实际执行的入口，
+//   它会触发线程启动事件、加载线程状态，并调用线程真正的工作函数
+//   （thread_func），工作函数返回后再执行 thread_exit() 结束线程。
+//   因此本函数并不直接指向用户提供的 thread_func，而是经由
+//   thread_arch_main 这一统一入口进行包装。
+// - SP 设为栈顶（stack_base + stack_size）：AArch64 栈是满递减栈，
+//   栈顶即栈内存的最高地址，首次压栈时向下生长。
+// - FP 设为 0：表示该栈帧为初始帧（链的末尾），栈回溯到此为止。
+//
+// 注意：此处仅设置 PC/SP/FP 三个上下文寄存器，其余寄存器状态由
+// thread_arch_switch_thread() 在首次上下文切换时通过内联汇编补齐。
 void
 thread_arch_init_context(thread_t *thread)
 {

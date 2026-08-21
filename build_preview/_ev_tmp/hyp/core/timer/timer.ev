@@ -1,0 +1,24 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module timer
+
+subscribe boot_cold_init
+
+subscribe ipi_received[IPI_REASON_TIMER_QUEUE_SYNC]()
+
+subscribe rootvm_init(hyp_env)
+
+subscribe platform_timer_expiry
+
+subscribe power_cpu_suspend()
+	unwinder timer_handle_power_cpu_resume()
+	// Run early since it may reject suspends
+	priority 100
+
+subscribe power_cpu_resume()
+
+subscribe power_cpu_online()
+
+subscribe power_cpu_offline()

@@ -1,0 +1,24 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module ffa
+
+subscribe boot_cold_init()
+
+subscribe object_activate_addrspace
+subscribe object_deactivate_addrspace
+
+subscribe vcpu_trap_smc64
+	// Run before the main SMC handler
+	priority 10
+
+subscribe vcpu_trap_hvc64
+	// Run before the main HVC handler
+	priority 10
+
+subscribe object_create_addrspace
+	handler ffa_memory_create_addrspace
+
+subscribe object_deactivate_addrspace
+	handler ffa_memory_deactivate_addrspace

@@ -1,0 +1,14 @@
+// Copyright © Qualcomm Technologies, Inc. and/or its subsidiaries.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+module vic_base
+
+
+subscribe vic_bind_virq
+	handler vic_base_handle_hwirq_vic_bind_virq(irq_obj_cap, vic, index, virq)
+	priority first
+
+subscribe vic_unbind_virq
+	handler vic_base_handle_hwirq_vic_unbind_virq(irq_obj_cap, index)
+	priority first
