@@ -62,14 +62,17 @@ partition_standard_handle_boot_runtime_first_init(void)
 	partition_hyp.header.type = OBJECT_TYPE_PARTITION;
 }
 
+// boot_cold_init 上 priority first：建 partition_hyp 骨架。
+// 此刻还没有 allocator，不能 malloc；memdb 也还没登记 owner。
 void NOINLINE
 partition_standard_handle_boot_cold_init(void)
 {
-	// Set up the hyp partition's header.
+	// 静态变量 partition_hyp：初始化 mapped_ranges 链表，并标成 ACTIVE。
 	list_init(&partition_hyp.mapped_ranges);
 	atomic_store_release(&partition_hyp.header.state, OBJECT_STATE_ACTIVE);
 
-	// Add hypervisor memory as a mapped range.
+	// 用 bootmem 分配 mapped_range 节点，记下 hyp 镜像的 VA/PA 对应。
+	// 这是映射关系，不是 memdb 的 owner；owner 要等 memdb handler（priority 10）才写。
 	partition_mapped_range_t *mr = NULL;
 	void_ptr_result_t	  alloc_ret =
 		bootmem_allocate(sizeof(*mr), alignof(*mr));
@@ -80,6 +83,7 @@ partition_standard_handle_boot_cold_init(void)
 	(void)memset_s(alloc_ret.r, sizeof(*mr), 0, sizeof(*mr));
 	mr = (partition_mapped_range_t *)alloc_ret.r;
 
+	// size 算到 hyp 私有堆末尾：镜像物理范围去掉「RW 数据里不属于私有堆」的那一段。
 	paddr_t hyp_heap_end =
 		(phys_last + 1U) - ((size_t)PLATFORM_RW_DATA_SIZE -
 				    (size_t)PLATFORM_HEAP_PRIVATE_SIZE);
@@ -99,15 +103,15 @@ partition_standard_handle_boot_cold_init(void)
 				    &mr->list_node);
 	partition_hyp.mapped_count = 1U;
 
-	// Allocate management structures for the hypervisor allocator.
+	// 给 hyp 的 allocator 分配管理结构（此时堆里还没有可分配的 RAM）。
 	if (allocator_init(&partition_hyp.allocator) != OK) {
 		panic("allocator_init() failed for hyp partition");
 	}
 
-	// Configure partition to be privileged
+	// hyp partition 有特权。
 	partition_option_flags_set_privileged(&partition_hyp.options, true);
 
-	// Get remaining boot memory and assign it to hypervisor allocator.
+	// bootmem 剩余内存一次性交给 hyp allocator；之后启动路径改走 partition 堆。
 	size_t		  hyp_alloc_size;
 	void_ptr_result_t ret = bootmem_allocate_remaining(&hyp_alloc_size);
 	if (ret.e != OK) {

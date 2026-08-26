@@ -690,20 +690,29 @@ scheduler_trigger(void)
 	ipi_one_relaxed(IPI_REASON_RESCHEDULE, cpu);
 }
 
+// 当前线程主动让出 CPU，即使它仍可继续跑。
+// 与 scheduler_schedule() 的差别：schedule 只在有更高优先级时才切走；
+// yield 先丢掉剩余时间片（或结束定向让出），同优先级的就绪线程也能被选上。
+// 调用方不能持有任何自旋锁，也不能在 RCU 读侧临界区里。
+// 返回时：要么没切出去，要么已经切走又被切回来。
 void
 scheduler_yield(void)
 {
 	thread_t *current = thread_get_self();
 
+	// 后面要读 per-CPU 的 yielded_from，并可能切栈，期间不能被抢占。
 	preempt_disable();
 	thread_t *yielded_from = CPULOCAL(yielded_from);
 	if (yielded_from != NULL) {
-		// End the directed yield to the current thread.
+		// 当前线程是别人 scheduler_yield_to() 定向让过来的：
+		// 结束这次捐赠，让出方不再把时间片/优先级借给我们。
 		end_directed_yield(yielded_from);
 	} else {
-		// Discard the rest of the current thread's timeslice.
+		// 普通 yield：把剩余时间片清零。get_next_target() 会把它当成
+		// 时间片耗尽，从而允许同优先级队列头把当前线程换下去。
 		current->scheduler_active_timeslice = 0U;
 	}
+	// 真正选下一个并可能 thread_switch_to()。返回值（是否切走过）这里用不到。
 	(void)scheduler_schedule();
 	preempt_enable();
 }

@@ -284,34 +284,64 @@ trigger_boot_cpu_early_init_event(void)
     preempt_handle_boot_cpu_early_init();
 }
 
+// boot_cold_init 事件分发：只在 Boot CPU 冷启动跑一次。
+// 调用顺序由各模块 .ev 的 priority 生成（数字越大越早；first 最早，last 最晚）。
 void
 trigger_boot_cold_init_event(cpu_index_t boot_cpu_index)
 {
+    // first：激活静态 partition_hyp，记下镜像 VA/PA 映射，把剩余 bootmem 交给 hyp allocator。
+    // 后面的模块都假定 partition_get_private() 已可用。
     partition_standard_handle_boot_cold_init();
+    // VERBOSE 构建下给引导栈底部填红区，供 idle 时检测栈溢出。
     boot_handle_boot_cold_init();
+    // 把 Boot CPU 标成 RCU 活跃，之后的 grace period 才会计入这颗核。
     rcu_bitmap_handle_boot_cold_init(boot_cpu_index);
+    // 初始化每核电源投票/状态：Boot CPU 记为 COLD_BOOT 且 vote=1（防止启动中被挂起），其余核 OFF。
     power_handle_boot_cold_init(boot_cpu_index);
+    // priority 30：初始化 hypervisor 页表控制块（从 partition_hyp 取页）。
     pgtable_handle_boot_cold_init();
+    // priority 20：映射 hyp 镜像的物理访问窗口，并分配 aspace 区域 bitmap。
     hyp_aspace_handle_boot_cold_init();
+    // priority 10：memdb 登记 hyp 镜像归 partition_hyp；bootmem 那段改记为 allocator 所有。
     memdb_bitmap_handle_boot_cold_init();
+    // priority 9：若私有堆 > 前 2MiB（汇编只映射了那么多），把 aspace 已补映射的剩余 RAM 加进 hyp 堆。
     partition_standard_boot_add_private_heap();
+    // 初始化 IRQ 号段树，再广播 irq_init（平台中断控制器）。
     irq_handle_boot_cold_init(boot_cpu_index);
+    // 向 EL3 查询 PSCI / SMCCC 版本；没有 PSCI 则 panic。
     arm_smccc_handle_boot_cold_init();
+    // QEMU 平台：把 UART 映射进 hyp 地址空间，供控制台输出。
     soc_qemu_uart_init();
+    // 初始化看门狗超时队列（锁、链表）。
     watchdog_queue_handle_boot_cold_init();
+    // 预留 VMID 0（hypervisor 自己用），guest 地址空间从其余 VMID 分配。
     addrspace_handle_boot_cold_init();
+    // 探测 MPAM 硬件是否开启，写入全局 option。
     arm_vm_mpam_direct_handle_boot_cold_init();
+    // 读取固件是否禁用 debug，供后续 vdebug 判断。
     debug_handle_boot_cold_init();
+    // 与 SPMC/TrustZone 协商 FF-A 版本。
     ffa_handle_boot_cold_init();
+    // 初始化全局 option 自旋锁。
     globals_handle_boot_cold_init();
+    // 记下 Boot CPU 编号；idle_loop 里只在这颗核上触发一次 idle_start。
     idle_handle_boot_cold_init(boot_cpu_index);
+    // 把低功耗 generic timer 的 CNTBase 映射进 hyp 地址空间。
     platform_timer_lp_handle_boot_cold_init();
+    // 为每颗存在的 CPU 分配 FPRR 调度器（就绪队列、重调度 timer）。
     scheduler_fprr_handle_boot_cold_init();
+    // 平凡调度器：初始化每核 active_thread 锁（与 FPRR 二选一，预览构建里两者都在）。
     scheduler_trivial_handle_boot_cold_init();
+    // 映射 SMMU v3 寄存器页，校验硬件 ID 并做控制器初始化。
     smmuv3_handle_boot_cold_init(boot_cpu_index);
+    // 初始化所有核的 timer 队列；此刻只有 Boot CPU 标为 online。
     timer_handle_boot_cold_init(boot_cpu_index);
+    // 初始化系统级低功耗 timer 队列。
     timer_lp_queue_handle_boot_cold_init();
+    // 探测固件是否禁用 CPU trace（VET）。
     vet_handle_boot_cold_init();
+    // last：从 hyp 堆分配并激活 root partition，donate 一小块启动堆给它。
+    // 其余平台 RAM 要等 boot_hypervisor_start 才登记给 root。
     partition_standard_boot_create_root_partition();
 }
 
