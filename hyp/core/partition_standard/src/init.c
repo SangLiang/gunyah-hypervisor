@@ -62,17 +62,31 @@ partition_standard_handle_boot_runtime_first_init(void)
 	partition_hyp.header.type = OBJECT_TYPE_PARTITION;
 }
 
-// boot_cold_init 上 priority first：建 partition_hyp 骨架。
-// 此刻还没有 allocator，不能 malloc；memdb 也还没登记 owner。
+// boot_cold_init 阶段最早执行的 handler（priority first）。
+//
+// 职责：为静态 hypervisor partition（partition_hyp）搭建最小可用骨架，使其
+// 拥有可用的内存分配器，后续启动代码才能从 bootmem 切换到 partition 堆。
+//
+// 约束：
+//   - 此时尚无 partition allocator，不能调用 malloc/partition_alloc；
+//   - memdb 尚未初始化，mapped_range 只记录 VA/PA 映射，不登记 owner
+//     （owner 由 memdb handler，priority 10 写入）。
+//
+// 步骤概览：
+//   1. 初始化 partition_hyp 状态与 mapped_ranges 链表；
+//   2. 用 bootmem 分配并填充首个 mapped_range，描述 hyp 镜像映射；
+//   3. 初始化 hyp allocator 管理结构（尚无可用 RAM）；
+//   4. 标记 hyp partition 为特权；
+//   5. 将 bootmem 剩余内存一次性注入 hyp allocator，完成堆切换。
 void NOINLINE
 partition_standard_handle_boot_cold_init(void)
 {
-	// 静态变量 partition_hyp：初始化 mapped_ranges 链表，并标成 ACTIVE。
+	// 初始化 mapped_ranges 链表，并将 partition_hyp 标为 ACTIVE。
 	list_init(&partition_hyp.mapped_ranges);
 	atomic_store_release(&partition_hyp.header.state, OBJECT_STATE_ACTIVE);
 
-	// 用 bootmem 分配 mapped_range 节点，记下 hyp 镜像的 VA/PA 对应。
-	// 这是映射关系，不是 memdb 的 owner；owner 要等 memdb handler（priority 10）才写。
+	// 从 bootmem 分配 mapped_range 节点，记录 hyp 镜像的 VA/PA 对应关系。
+	// 此处仅描述映射，不是 memdb 的 owner 登记。
 	partition_mapped_range_t *mr = NULL;
 	void_ptr_result_t	  alloc_ret =
 		bootmem_allocate(sizeof(*mr), alignof(*mr));
@@ -83,7 +97,9 @@ partition_standard_handle_boot_cold_init(void)
 	(void)memset_s(alloc_ret.r, sizeof(*mr), 0, sizeof(*mr));
 	mr = (partition_mapped_range_t *)alloc_ret.r;
 
-	// size 算到 hyp 私有堆末尾：镜像物理范围去掉「RW 数据里不属于私有堆」的那一段。
+	// 计算 mapped_range 的 size：从镜像物理起始到 hyp 私有堆末尾。
+	// hyp_heap_end = 镜像物理末尾 - (RW 数据总大小 - 私有堆大小)，
+	// 即去掉 RW 数据段中不属于 hyp 私有堆的那一段。
 	paddr_t hyp_heap_end =
 		(phys_last + 1U) - ((size_t)PLATFORM_RW_DATA_SIZE -
 				    (size_t)PLATFORM_HEAP_PRIVATE_SIZE);
@@ -91,33 +107,34 @@ partition_standard_handle_boot_cold_init(void)
 	mr->phys = phys_start;
 	mr->size = (size_t)(hyp_heap_end - phys_start);
 
-	// Set the default allocator memory attributes for the mapped range.
-	// This isn't really the best location to track these attributes given
-	// only part of this memory is used for allocations, and it assumes the
-	// attributes are the same for the entire range. Consider an alternate
-	// location for this in future.
+	// 为 mapped_range 设置 allocator 默认内存属性。
+	// 此处并非跟踪这些属性的最佳位置：该范围只有部分用于分配，
+	// 且假设整个范围的属性一致。后续可考虑换到更合适的位置。
 	// FIXME: QC Gunyah issue #245
 	mr->attr = allocator_memattr_default();
 
+	// 将 mapped_range 挂入链表，hyp partition 当前仅 1 段映射。
 	list_insert_at_tail_release(&partition_hyp.mapped_ranges,
 				    &mr->list_node);
 	partition_hyp.mapped_count = 1U;
 
-	// 给 hyp 的 allocator 分配管理结构（此时堆里还没有可分配的 RAM）。
+	// 初始化 hyp allocator 的管理结构（此时堆中尚无可分配 RAM）。
 	if (allocator_init(&partition_hyp.allocator) != OK) {
 		panic("allocator_init() failed for hyp partition");
 	}
 
-	// hyp partition 有特权。
+	// hyp partition 拥有特权，可执行特权操作（如创建其他 partition）。
 	partition_option_flags_set_privileged(&partition_hyp.options, true);
 
-	// bootmem 剩余内存一次性交给 hyp allocator；之后启动路径改走 partition 堆。
+	// 将 bootmem 剩余内存一次性交给 hyp allocator；
+	// 此后启动路径的内存分配改走 partition 堆，不再使用 bootmem。
 	size_t		  hyp_alloc_size;
 	void_ptr_result_t ret = bootmem_allocate_remaining(&hyp_alloc_size);
 	if (ret.e != OK) {
 		panic("no boot mem");
 	}
 
+	// 将 bootmem 虚拟地址转换为物理地址，通过 allocator 事件注入 RAM 范围。
 	paddr_t phys = partition_image_virt_to_phys((uintptr_t)ret.r);
 
 	error_t err = trigger_allocator_add_ram_range_event(
