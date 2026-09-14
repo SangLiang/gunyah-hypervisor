@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
-// rootvm_init() is allowed to call partition_get_root().
+// 允许 rootvm_init() 调用 partition_get_root()。
 #define ROOTVM_INIT 1
 
 #include <assert.h>
@@ -165,6 +165,24 @@ rootvm_init_env_data(partition_t *root_partition, uint32_t env_data_size)
 	};
 }
 
+// boot_hypervisor_start 阶段最后执行的 handler（priority last）。
+//
+// 职责：创建 RootVM 的 cspace、VCPU 线程与环境数据，广播 rootvm_init 让各
+// 模块加载 GPKG / 建 Stage-2 等，最后 vcpu_poweron，把 RootVM 放进调度器。
+// 本函数返回时 guest 尚未开始跑；要等 boot_cpu_start 解锁后 idle yield。
+//
+// 约束：
+//   - 前面 RAM、idle、hyp 服务必须已齐（所以是 last）；
+//   - 调用期间抢占关闭（rootvm.ev: require_preempt_disabled）。
+//
+// 步骤概览：
+//   1. 选定 RootVM 绑定的物理核，给 root partition 补堆；
+//   2. 创建并激活 root cspace；
+//   3. 分配 root 线程并配成 VCPU，挂上 cspace；
+//   4. 给 cspace / partition / thread 建 master cap，写入 CBOR 环境数据；
+//   5. 走 memdb 收集 root partition 可用内存范围；
+//   6. 广播 rootvm_init（加载 Runtime/RM、建地址空间等）；
+//   7. 把环境数据拷进 RootVM 内存，activate 线程并 vcpu_poweron。
 void NOINLINE
 rootvm_init(void)
 {
@@ -173,9 +191,11 @@ rootvm_init(void)
 	static_assert(ROOTVM_PRIORITY <= VCPU_MAX_PRIORITY,
 		      "unexpected scheduler configuration");
 
+	// 默认绑在当前核（冷启动时即 Boot CPU）。
 	cpu_index_t boot_cpu_idx = cpulocal_get_index();
 
 #if defined(PLATFORM_ROOTVM_AFFINITY) && !defined(ROOTVM_ALWAYS_ON_BOOT_CORE)
+	// 平台指定了 RootVM 亲和性且该核可用时，改绑到那颗核。
 	if (platform_cpu_functional(PLATFORM_ROOTVM_AFFINITY)) {
 		boot_cpu_idx = PLATFORM_ROOTVM_AFFINITY;
 	}
@@ -192,9 +212,10 @@ rootvm_init(void)
 
 	assert(root_partition != NULL);
 
+	// 给 root partition 补堆（平台相关：额外 heap / trace 缓冲等）。
 	platform_add_root_heap(root_partition);
 
-	// Create cspace for root partition
+	// 为 root partition 创建 capability 空间。
 	cspace_create_t cs_params = { NULL };
 
 	cspace_ptr_result_t cspace_ret =
@@ -215,9 +236,10 @@ rootvm_init(void)
 		goto cspace_fail;
 	}
 
+	// 让各模块补全线程创建默认参数（kind 等），再分配 root 线程。
 	trigger_object_get_defaults_thread_event(&params);
 
-	// Allocate and setup the root thread
+	// 分配并配置 root 线程（此时还不能跑：LIFECYCLE / VCPU_OFF 仍挡着）。
 	thread_ptr_result_t thd_ret =
 		partition_allocate_thread(root_partition, params);
 	if (thd_ret.e != OK) {
@@ -233,12 +255,12 @@ rootvm_init(void)
 		panic("Error configuring vcpu");
 	}
 
-	// Attach root cspace to root thread
+	// 把 root cspace 挂到 root 线程上（VCPU 走 hypercall 必须有 cspace）。
 	if (cspace_attach_thread(root_cspace, root_thread) != OK) {
 		panic("Error attaching cspace to root thread");
 	}
 
-	// Give the root cspace a cap to itself
+	// 给 root cspace 发一张指向自己的 master cap，RM 侧用 CapID 引用它。
 	object_ptr_t obj_ptr;
 
 	obj_ptr.cspace		  = root_cspace;
@@ -263,11 +285,10 @@ rootvm_init(void)
 
 	QCBOREncode_AddUInt64ToMap(qcbor_enc_ctxt, "cspace_capid", capid_ret.r);
 
-	// Take extra reference so that the deletion of the master cap does not
-	// accidentally destroy the partition.
+	// 多拿一次引用：删掉 master cap 时不要误把 partition 对象销毁。
 	root_partition = object_get_partition_additional(root_partition);
 
-	// Create caps for the root partition and thread
+	// 为 root partition 和 root 线程创建 master cap。
 	obj_ptr.partition = root_partition;
 	capid_ret	  = cspace_create_master_cap(root_cspace, obj_ptr,
 						     OBJECT_TYPE_PARTITION);
@@ -286,13 +307,13 @@ rootvm_init(void)
 	QCBOREncode_AddUInt64ToMap(qcbor_enc_ctxt, "vcpu_capid", capid_ret.r);
 	crt_env->vcpu_capid = capid_ret.r;
 
-	// Do a memdb walk to get all the available memory ranges of the root
-	// partition and save in the rm_env_data
+	// 遍历 memdb，把 root partition 的可用内存范围写入 rm_env_data。
 	if (boot_add_free_range((uintptr_t)root_partition, MEMDB_TYPE_PARTITION,
 				qcbor_enc_ctxt) != OK) {
 		panic("Error doing the memory database walk");
 	}
 
+	// 广播 rootvm_init：加载 GPKG、建 Stage-2 地址空间、填 hyp_env 等。
 	trigger_rootvm_init_event(root_partition, root_thread, root_cspace,
 				  &hyp_env, qcbor_enc_ctxt);
 
@@ -308,11 +329,11 @@ rootvm_init(void)
 	crt_env->gicd_base     = hyp_env.gicd_base;
 	crt_env->gicr_base     = hyp_env.gicr_base;
 
-	// Copy the rm_env_data to the root VM memory
+	// 把 rm_env_data 拷进 RootVM 内存（guest IPA 对应的物理页）。
 	copy_rm_env_data_to_rootvm_mem(hyp_env, rm_env_data, crt_env,
 				       env_data_size);
 
-	// Setup the root VM thread
+	// 激活 root 线程对象：清掉 LIFECYCLE，VCPU_OFF 仍在，还不能进就绪表。
 	if (object_activate_thread(root_thread) != OK) {
 		panic("Error activating root thread");
 	}
@@ -323,8 +344,7 @@ rootvm_init(void)
 	vcpu_power_req_flags_t power_flags = vcpu_power_req_flags_default();
 
 	scheduler_lock_nopreempt(root_thread);
-	// FIXME: eventually pass as dtb, for now the rm_env_data ipa is passed
-	// directly.
+	// FIXME: 最终应通过 DTB 传入；目前直接把 rm_env_data 的 IPA 放进 X0。
 	bool_result_t power_ret =
 		vcpu_poweron(root_thread, vmaddr_result_ok(hyp_env.entry_ipa),
 			     register_result_ok(hyp_env.env_ipa), power_flags);
@@ -332,7 +352,7 @@ rootvm_init(void)
 		panic("Error vcpu poweron");
 	}
 
-	// Allow other modules to clean up after root VM creation.
+	// 允许其他模块在 RootVM 创建完成后做清理。
 	trigger_rootvm_started_event(root_thread);
 	scheduler_unlock_nopreempt(root_thread);
 	partition_free(root_partition, crt_env, env_data_size);

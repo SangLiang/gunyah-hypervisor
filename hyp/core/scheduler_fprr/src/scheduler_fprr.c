@@ -212,11 +212,20 @@ pop_runqueue_head(scheduler_t *scheduler, index_t i)
 	return head;
 }
 
+// 这条线程现在能不能进就绪表 / 被选中跑。
+//
+// 判定只看 scheduler_block_bits：全空才可调度。block / unblock 置清某一位，
+// 同名 block 不嵌套。LIFECYCLE、IDLE、VCPU_OFF、WFI 等都走这张位图。
+//
+// 已被 kill 时例外：丢掉可杀的 block（WFI 等），只保留 non_killable 位
+// （如 AFFINITY_CHANGED）。这样退出路径能被选上，但迁核还没做完仍不能跑。
+// 调用方必须持有 thread->scheduler_lock。
 static bool
 can_be_scheduled(const thread_t *thread) REQUIRE_SCHEDULER_LOCK(thread)
 {
 	assert_spinlock_held(&thread->scheduler_lock);
 
+	// block 位已断言能装进一个寄存器，拷出来再改，不写回线程本身。
 	register_t block_bits = thread->scheduler_block_bits[0];
 
 	if (compiler_unexpected(
@@ -227,9 +236,15 @@ can_be_scheduled(const thread_t *thread) REQUIRE_SCHEDULER_LOCK(thread)
 	return bitmap_empty(&block_bits, SCHEDULER_NUM_BLOCK_BITS);
 }
 
+// FPRR 调度器冷启动初始化（boot_cold_init 事件回调）。
+//
+// 在引导 CPU 上执行一次：为每颗存在的物理 CPU 分配并挂好一张就绪表
+// （scheduler_t），再收集「线程被 kill 后仍必须遵守」的 block 位。
+// 此时还没有可跑线程，runqueue 都是空的。
 void
 scheduler_fprr_handle_boot_cold_init(void)
 {
+	// 调度器对象从 hypervisor 私有分区分配，生命周期到关机为止。
 	partition_t *hyp_partition = partition_get_private();
 
 	for (cpu_index_t i = 0U; i < PLATFORM_MAX_CORES; i++) {
@@ -244,17 +259,23 @@ scheduler_fprr_handle_boot_cold_init(void)
 			panic("Unable to allocate memory for scheduler");
 		}
 		scheduler			= (scheduler_t *)alloc_ret.r;
+		// 挂到该 CPU 的 CPULOCAL(scheduler)。线程只进自己 affinity 那张表。
 		CPULOCAL_BY_INDEX(scheduler, i) = scheduler;
 		(void)memset_s(scheduler, sizeof(scheduler_t), 0,
 			       sizeof(scheduler_t));
 
 		spinlock_init(&scheduler->lock);
+		// 时间片到期时触发 TIMER_ACTION_RESCHEDULE，走本核重调度。
 		timer_init_object(&scheduler->timer, TIMER_ACTION_RESCHEDULE);
+		// 64 级 FIFO；下标 j = MAX_PRIO - priority，最高优先级在最低 index。
 		for (index_t j = 0U; j < SCHEDULER_NUM_PRIORITIES; j++) {
 			list_init(&scheduler->runqueue[j]);
 		}
 	}
 
+	// 各模块通过 scheduler_get_block_properties 事件声明自己的 block 是否
+	// non_killable。kill 线程时 can_be_scheduled() 会用这张 mask 丢掉可杀
+	// 的 block，只保留必须等完的位（如 affinity_changed）。
 	ENUM_FOREACH(SCHEDULER_BLOCK, block)
 	{
 		scheduler_block_properties_t props =
@@ -266,6 +287,12 @@ scheduler_fprr_handle_boot_cold_init(void)
 	}
 }
 
+// object_create_thread 的调度器侧处理：给这条新线程填好 FPRR 字段。
+//
+// scheduler_fprr.ev 里 priority -100，靠后跑。前面 thread_standard 已经
+// first 挂上 THREAD_LIFECYCLE（VCPU / idle 可能再挂了别的位）。本函数
+// 只初始化 affinity / 优先级 / 时间片和 scheduler lock，不入队——block
+// 还非空，can_be_scheduled() 为假。
 error_t
 scheduler_fprr_handle_object_create_thread(thread_create_t thread_create)
 {
@@ -273,14 +300,19 @@ scheduler_fprr_handle_object_create_thread(thread_create_t thread_create)
 
 	assert(thread != NULL);
 	assert(atomic_load_relaxed(&thread->state) == THREAD_STATE_INIT);
+	// 调度字段只能 init 一次。
 	assert(!sched_state_get_init(&thread->scheduler_state));
+	// 必须已有人挂过 block（至少 LIFECYCLE）。半成品绝不能被选中。
 	assert(!bitmap_empty(thread->scheduler_block_bits,
 			     SCHEDULER_NUM_BLOCK_BITS));
 
 	spinlock_init(&thread->scheduler_lock);
+	// 还没在任何核上跑过。
 	atomic_init(&thread->scheduler_active_affinity, CPU_INDEX_INVALID);
 	thread->scheduler_prev_affinity = CPU_INDEX_INVALID;
 
+	// 调用方没指定 affinity 则为无效下标：可迁移配置下稍后绑定；
+	// 不可迁移时 activate 会因 affinity 非法而失败。
 	cpu_index_t cpu		   = thread_create.scheduler_affinity_valid
 					     ? thread_create.scheduler_affinity
 					     : CPU_INDEX_INVALID;
