@@ -5,6 +5,8 @@
 - 目标仓库：`10.42.27.86:/media/test/USR-DATA/work/2030/gunyah/xhyper`（EL2 框架）+ `xhyper-mgr`（唤醒休眠脚手架）+ `xhyper-abi`（Stage 3 扩展）
 - 实施环境：`xhyper-dev:2026.08` 容器，QEMU 10.2.1，AArch64 virt，Rust 1.95
 - 插图：下文 Mermaid 图需支持 Mermaid 的 Markdown 预览（GitHub / VS Code Markdown Preview Mermaid 等）
+- 验证基线：xhyper `main@d67e6f5e`、xhyper-mgr `main@0a39089`、xhyper-abi
+  `main@cba464c`（2026-09-23 拉新后复核；早期基于 detached HEAD 的结论已修正）
 
 ---
 
@@ -104,9 +106,18 @@ Gunyah `hyp/interfaces/virtio_backend/virtio_backend.hvc`（call_num 为权威�
 | 0x54 | `virtio_backend_acknowledge_reset` | backend→EL2 | 确认复位完成 |
 | 0x55 | `virtio_backend_update_status` | backend→EL2 | 后端改 status（如 NEEDS_RESET） |
 
-**关键缺口**：xhyper-abi 现有封装只有**管理面**（create/configure/bind/unbind/activate/cspace
-ops），**数据面 0x4e–0x55 缺**。对 EL2 内 backend（Stage 2 console）无影响（内部直调），
-Stage 3（Host 用户态 blk backend）必须先扩 xhyper-abi——跨仓变更。
+**ABI 现状**（2026-09-23 按最新代码复核，修正早期调研结论）：
+
+- **定义层完整**：xhyper-abi 冻结快照（`generated/hypercalls.rs`）已含全部
+  11 条 `virtio_backend_*`（0x49–0x55，管理面 + 数据面），编号与 Gunyah
+  逐条一致；`virtio_backend_notify_reason`（new_buffer / reset_request /
+  driver_ok / failed）等位域类型一比一移植。xhyper 的 `hypervisor/abi`
+  crate include 的正是这份快照——**EL2 侧派发常量已可用**。
+- **消费层缺口**：xhyper-mgr 内嵌的 `crates/xhyper-abi`（operation.rs）
+  只封装管理面；数据面封装缺（mgr 正在迁移到共享 codegen 输出，
+  `abi: Consume shared codegen outputs` 等提交已在铺路）。
+- **实现层缺口**：EL2 runtime 分发表里没有任何 `VIRTIO_BACKEND_*`
+  handler（grep 零命中）。
 
 ### 1.4 Gunyah 参考实现（C 版逐行对照物）
 
@@ -179,15 +190,22 @@ flowchart LR
 
 ### Stage 0 · EL2 MMIO 派发框架
 
-**问题**：xhyper 现有 VMMIO 模型只有一条路（decode → exit 给 VMM 回填），
-没有"EL2 内注册 handler"的派发框架。Gunyah 的整个 trap 体系靠
-`vdevice_attach_phys`（按页注册 handler）。
+**问题**（已按代码现状修正，2026-09-23 复核）：xhyper **并非没有** EL2 内
+MMIO 仿真——vGIC 的 GICD/GICR aperture、vITS 的 vdevice 窗口、vRTC
+（PL031/Phytium）都在 EL2 内走三态派发（`Unhandled`/`Fault`/`Emulated`，
+与 Gunyah vdevice 合同同构，见 `hypervisor/device/vrtc/src/store.rs` 的
+`access_mmio`），范围注册经 `ADDRSPACE_CONFIGURE_RANGE(ADD_VMMIO)`。
+真正缺的是两样：**通用的多设备注册表**（vRTC 是固定地址单窗口，写死在
+runtime 派发点里）与 **per-object 动态窗口**（virtio 设备的数量与位置由
+mgr 配置决定，config cache 页经 memextent 捐赠，不是固定地址）。
 
 **设计**：
 
-- 新增 EL2 内 handler 注册表：按 `(addrspace, IPA range)` 注册 handler token，
-  runtime 在 VMMIO fault 路径上先查注册表，命中则调用 EL2 handler，
-  未命中走现有 exit-to-VMM 路径（路径 B 行为不变）。
+- **不新建派发框架，泛化现有的**：把 `ADD_VMMIO` 范围注册 + 三态派发
+  （vRTC/vITS 已在被 `phase-d4-probe`、`qemu-vits-msi`、`qemu-wired-spi`
+  门禁验证的机制）泛化为按 `(addrspace, IPA range)` 的注册表，支持多设备
+  动态注册；runtime 在 VMMIO fault 路径上先查注册表，命中则调用 EL2
+  handler，未命中走现有 exit-to-VMM 路径（路径 B 行为不变）。
 - **只读 mirror 方案**（Gunyah 同款，单映射而非双映射）：guest Stage-2 把
   config cache 页映射为 RO。guest **读**直接命中 RO 映射（不 trap，零成本，
   数据来自真实页）；**写**触发 permission fault 进 EL2 handler。config cache 页
@@ -364,9 +382,10 @@ flowchart LR
 
 三件并行的事：
 
-1. **数据面 ABI 扩展**（前置）：xhyper-abi 补 0x4e–0x55 数据面 immediate
-   （沿用 Gunyah call_num 以保持兼容）+ 快照重生成。跨仓变更，需 ABI
-   维护者配合（开放问题 #1）。
+1. **mgr 数据面 ABI 封装**（小活，非跨仓冻结变更）：ABI 定义已在
+   xhyper-abi 快照里（0x4e–0x55 全套，编号与 Gunyah 一致），只需给
+   mgr 的 operation.rs 补数据面封装（mgr 迁移到共享 codegen 输出后
+   这部分可能自动获得）。EL2 侧常量同样现成。
 2. **Host 用户态 backend 进程**：精简设备模型进程（非 VMM）：blk 请求处理
    （读写镜像文件）+ 经 0x4f–0x55 推进 EL2 状态 + 消费 notification。
    宿主形态（新进程 vs 扩展 xhyper-vmm）为开放问题 #2。
@@ -534,11 +553,11 @@ flowchart TB
 
 | # | 风险 | 等级 | 缓解 |
 |---|---|---|---|
-| 1 | Stage 0 动 runtime/execution/address_space 核心路径，回归面大 | 高 | feature-gate 默认 off；查表点收敛在 fault 分支前；model 层单测先行；phase-d4 回归作为硬门禁 |
+| 1 | Stage 0 动 runtime/execution/address_space 核心路径，回归面大 | 中高 | **建立在既有被验证机制上**（vGIC aperture / vITS vdevice 窗口 / vRTC 三态派发 + ADD_VMMIO 注册，均过门禁）；feature-gate 默认 off；model 层单测先行；phase-d4 回归作为硬门禁 |
 | 2 | ABI 语义漂移（与休眠 mgr 代码 / Gunyah 行为对不上） | 高 | 1.3 对照表为合同；每条 hypercall 配语义单测（对齐 Gunyah 错误码路径） |
 | 3 | 阻塞复位死锁 / 对象销毁竞态 | 中高 | 先写失败测试（超时、销毁并发复位）；销毁路径先唤醒后回收 |
 | 4 | 双路径长期并存维护成本 | 中 | mgr 侧路径 A 域代码整体在 feature 后；文档明示两路边界（沿用调研报告路径 A/B 划分） |
-| 5 | Stage 3 跨仓协调（xhyper-abi、Host Linux UAPI 仓） | 中 | Stage 3 启动前先拿两个仓的改动承诺；数据面 ABI 编号沿用 Gunyah call_num 降低协调成本 |
+| 5 | Stage 3 跨仓协调（Host Linux UAPI 仓；xhyper-abi 已无缺口） | 低–中 | 数据面 ABI 已在 xhyper-abi 快照（0x4e–0x55 与 Gunyah 一致），mgr 消费迁移团队在做；仅 /dev/xhyper UAPI 一处需提前对齐 |
 | 6 | 只读 mirror 与路径 B 的 VMMIO 区域语义仲裁（同一 addrspace 混用两类区域） | 中 | Stage 0 注册表按 IPA range 精确匹配，未命中默认 exit-to-VMM；混用场景进门禁 |
 
 ---
@@ -549,11 +568,11 @@ flowchart TB
 
 | 阶段 | 预估 | 说明 |
 |---|---|---|
-| Stage 0 | 2–3 周 | 派发框架 + RO 映射 + 测试设备 + 新门禁 |
+| Stage 0 | 1.5–2.5 周 | 泛化既有派发机制 + RO 映射 + 测试设备 + 新门禁 |
 | Stage 1 | 4–6 周 | 四个 crate + 管理面 hypercall + 语义单测 |
 | Stage 2 | 1–2 周 | console backend + mgr 域唤醒 |
-| Stage 3 | 6–10 周 | ABI 扩展 + backend 进程 + 异步通知 + IOPS 基准 |
-| 合计 | ~3.5–5 个月 | Stage 3 的异步通知与路径 B 共用，可并行 |
+| Stage 3 | 5–8 周 | mgr ABI 封装 + backend 进程 + 异步通知 + IOPS 基准 |
+| 合计 | ~3–4.5 个月 | Stage 3 的异步通知与路径 B 共用，可并行 |
 
 参照：Gunyah C 侧对应实现约 1400 行 + 接口声明/模板/测试（**不含**
 virtio_iommu，其 1600+ 行在范围外，见非目标）；Rust 侧估
@@ -563,19 +582,21 @@ virtio_iommu，其 1600+ 行在范围外，见非目标）；Rust 侧估
 
 ## 8. 工程落地前置（第 0 步）
 
-服务器上 xhyper checkout 当前处于 detached HEAD `e8d4aa98`（"[Bug]：#9999
-故意触发编译失败5"，CI 流水线测试提交）。实施第一步：
+~~服务器上 xhyper checkout 处于 detached HEAD 编译失败测试提交~~
+**已解决（2026-09-23 拉新后）**：xhyper 已回到 `main` 干净跟踪 `origin/main`
+（`d67e6f5e`）。实施直接从干净基线开分支即可：
 
 ```bash
-git -C xhyper checkout -b virtio-el2 origin/master   # 回到干净基线
+git -C xhyper checkout -b virtio-el2 origin/main
 ```
 
 ---
 
 ## 9. 开放问题（进入实现前需关闭）
 
-1. **xhyper-abi 数据面 immediate**：是否直接沿用 Gunyah call_num 0x4e–0x55？
-   需 ABI 维护者确认（保持与 Gunyah ABI 数值兼容 vs 自立编号空间）。
+1. ~~xhyper-abi 数据面 immediate 是否沿用 Gunyah call_num 0x4e–0x55~~
+   **已关闭（2026-09-23 复核）**：快照已沿用 Gunyah 编号（0x49–0x55 全套，
+   含位域类型），无需决策。
 2. **Stage 3 backend 进程宿主**：独立新进程，还是扩展 `xhyper-vmm`？
    倾向独立进程（职责单一：设备模型而非 VMM），但 xhyper-vmm 已有
    hypercall 通路可复用。
