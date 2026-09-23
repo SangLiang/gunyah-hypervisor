@@ -38,6 +38,19 @@ hyp/vm/
 
 **职责边界**：EL2 负责 virtio **协议 + transport + 状态 + 队列机制**；RM VM（EL1）只负责**设备逻辑**（拿到请求做什么 I/O）。本报告逐一分析 EL2 这 6 个部件。
 
+Guest 驱动看到的是一块标准 virtio 设备。驱动写寄存器、摆描述符、敲 notify，这些都先 trap 进 EL2，不会直接跟 RM VM 说话。EL2 把 virtio 规范里和“这是什么设备”无关的部分做完；RM VM 只在协议走完之后，按设备类型解释请求并做真正的 I/O。
+
+| 边界上的词 | 实际在做什么 | 对应部件 |
+|---|---|---|
+| **协议** | 按 virtio 规范走握手：`ACKNOWLEDGE → DRIVER → FEATURES_OK → DRIVER_OK`，协商 feature，读写 config space | [1] `virtio_t` 状态机 |
+| **transport** | Guest 用什么总线碰到这块设备：MMIO 寄存器布局，或 PCI 的 BAR / capability / MSI-X，以及写 trap 怎么派发 | [2] MMIO、[3] PCI |
+| **状态** | 每个设备一份 `virtio_t`：当前 status、双方 feature、每条队列的地址和 ready、config generation | [1] 的字段，存在 EL2 |
+| **队列机制** | virtqueue 描述符链怎么从 guest 内存里安全读出来、notify 哪条队列有新 buffer、完成后再写 used ring、给 guest 注中断 | [4] virtq、[5] backend 桥、[6] hypercall |
+
+RM VM 也跑在 EL1，但是资源管理 VM，不是 guest。EL2 通过 virq 只告诉它一件事：某条队列上有一个新请求。RM VM 再经 hypercall 把描述符取回来，按设备类型解释并做 I/O，例如 virtio-blk 决定读还是写、哪个扇区，virtio-net 把包发出去或收进来。做完之后，它通过 Backend API 把结果推回 EL2（写 used ring、拉 guest 中断）。它不实现 status 状态机，也不仿真 MMIO/PCI 寄存器。
+
+因此 EL2 不是把 MMIO 写原样转给用户态。第 8 节的 `queue_notify` 数据流就是这条边界：步骤 1–4、7–8 在 EL2；步骤 5 才是 RM VM 收到“有新 buffer”，然后决定这个请求要做什么 I/O。后面第 2–7 节只拆这 6 个 EL2 部件，不分析 RM VM 里 blk/net 那些设备实现。
+
 ---
 
 ## 2. virtio_t 状态机（`virtio/src/frontend.c` + `backend.c`）
