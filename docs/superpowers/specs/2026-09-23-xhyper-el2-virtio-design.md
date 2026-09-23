@@ -4,6 +4,7 @@
 - 状态：设计稿（待评审）
 - 目标仓库：`10.42.27.86:/media/test/USR-DATA/work/2030/gunyah/xhyper`（EL2 框架）+ `xhyper-mgr`（唤醒休眠脚手架）+ `xhyper-abi`（Stage 3 扩展）
 - 实施环境：`xhyper-dev:2026.08` 容器，QEMU 10.2.1，AArch64 virt，Rust 1.95
+- 插图：下文 Mermaid 图需支持 Mermaid 的 Markdown 预览（GitHub / VS Code Markdown Preview Mermaid 等）
 
 ---
 
@@ -22,6 +23,39 @@
 
 本设计复活路径 A，与路径 B 以 feature-gate 并存。
 
+```mermaid
+flowchart LR
+  subgraph Guest["Secondary Guest EL1"]
+    GDRV["virtio_mmio 驱动"]
+  end
+
+  subgraph EL2["xhyper EL2"]
+    FAULT["VMMIO fault"]
+    REG["IPA handler 注册表<br/>路径 A"]
+    EXIT["exit → VMM<br/>路径 B"]
+    FRAME["virtio 框架<br/>model / mmio / backend / virtq"]
+    CON["EL2 console backend<br/>Stage 2"]
+  end
+
+  subgraph Host["Host / PVM 用户态"]
+    CROS["crosvm 全套仿真<br/>路径 B 活跃"]
+    BLK["精简 blk backend<br/>Stage 3"]
+    MGR["xhyper-mgr<br/>对象管理面"]
+  end
+
+  GDRV -->|MMIO 写 trap| FAULT
+  FAULT --> REG
+  REG -->|命中| FRAME
+  REG -->|未命中| EXIT
+  EXIT --> CROS
+  FRAME --> CON
+  FRAME <-->|管理面 hypercall| MGR
+  FRAME <-->|数据面 0x4e–0x55| BLK
+```
+
+> 读图：guest 的 MMIO 访问先经 EL2 查表；命中走路径 A（框架内处理），未命中保持路径 B（exit 给 crosvm）。两条路用 `CONFIG_HYPERVISOR_VIRTIO` 并存。注意：路径 A 区**读不 trap**（guest Stage-2 RO 映射直读，见 Stage 0 时序图），只有写 fault；路径 B 区读写都 exit。
+
+
 ### 1.2 Gunyah 事实（已逐文件验证，修正此前调研的两处偏差）
 
 1. **`virtio_input` / `virtio_iommu` 的 backend 逻辑在 EL2 内部**，不在 RM VM。
@@ -34,6 +68,22 @@
 3. 结论：开源 Gunyah = **EL2 框架（生产级）+ RM 对象管理（生产级）+ EL2 内
    两个简单 backend（input/iommu）**；blk/net/gpu 的 backend **无 OSS 实现**，
    生产形态是 HLOS 用户态进程走同一套 hypercall ABI。
+
+```mermaid
+flowchart TB
+  subgraph GunyahOSS["开源 Gunyah 实际分工"]
+    RM["RM：创建/配置/激活<br/>virtio backend 对象"]
+    EL2F["EL2：框架 + 状态机<br/>+ MMIO / virtq / 桥对象"]
+    SIMPLE["EL2 内简单 backend<br/>input / iommu"]
+    HLOS["HLOS 用户态 backend<br/>blk / net / gpu（无 OSS）"]
+  end
+  RM -->|hypercall 管理面| EL2F
+  EL2F --> SIMPLE
+  EL2F <-->|同一套 ABI 数据面| HLOS
+```
+
+> 修正点：backend「干活」多半在 EL2 或 HLOS；RM 不当设备驱动。xhyper Stage 2 对标 input（EL2 内），Stage 3 对标生产 blk（用户态 + ABI）。
+
 
 ### 1.3 ABI 基准（已冻结的合同）
 
@@ -88,6 +138,9 @@ Stage 3（Host 用户态 blk backend）必须先扩 xhyper-abi——跨仓变更
 
 - VPCI / virtio-pci（xhyper-abi 有 `vpci_*` 也先不动；Gunyah 自己 pci 路径的
   `virtio_ack_features_ok` 都是 `ERROR_UNIMPLEMENTED`）。
+- virtio-iommu（EL2 backend 复杂度上限参照，Gunyah 侧 1600+ 行：硬依赖
+  `platform/smmuv3` 物理 SMMU，把 guest 的 ATTACH/MAP/UNMAP 翻译成 STE/CD/TLB
+  编程；QEMU virt 无 SMMUv3，无验证载体。N80/N90 有 Phytium SMMU 后再评估）。
 - mgr 内嵌块设备/网络栈（方案 C 已否决：no_std 写驱动栈是重量级错误方向）。
 - 替换或禁用路径 B。
 - virtio-net/gpu 等其它设备（Stage 4 按需）。
@@ -115,6 +168,15 @@ Stage 4  （展望）net 等设备、VPCI、需求驱动
 每阶段独立可验证、风险递进；Stage 0/3 的基建（MMIO 派发、异步通知）对路径 B
 亦有收益，中途转向不白做。
 
+```mermaid
+flowchart LR
+  S0["Stage 0<br/>MMIO 派发 + RO mirror"] --> S1["Stage 1<br/>框架四件套 + 管理面"]
+  S1 --> S2["Stage 2<br/>EL2 console"]
+  S2 --> S3["Stage 3<br/>Host blk + 数据面 ABI"]
+  S3 -.-> S4["Stage 4<br/>net / VPCI …"]
+```
+
+
 ### Stage 0 · EL2 MMIO 派发框架
 
 **问题**：xhyper 现有 VMMIO 模型只有一条路（decode → exit 给 VMM 回填），
@@ -132,6 +194,33 @@ Stage 4  （展望）net 等设备、VPCI、需求驱动
   由 backend 创建方（mgr）经 memextent 捐赠，EL2 经自己的 hyp 映射（RW）维护
   页内容。需要 `address_space` 支持"把经 memextent 捐赠的页以 RO 映射进
   guest addrspace"。
+
+```mermaid
+sequenceDiagram
+  participant G as Guest
+  participant S2 as Stage-2 页表
+  participant EL2 as EL2 handler 注册表
+  participant H as virtio MMIO handler
+  participant P as config cache 页
+
+  Note over G,P: 读路径（零 trap）
+  G->>S2: 读 config 寄存器 IPA
+  S2->>P: RO 映射直读
+  P-->>G: 返回当前值
+
+  Note over G,H: 写路径（permission fault）
+  G->>S2: 写 MMIO / config
+  S2-->>EL2: permission fault
+  EL2->>EL2: 按 IPA range 查注册表
+  alt 命中路径 A
+    EL2->>H: 调用 EL2 handler
+    H->>P: 更新页内字段 hyp RW
+    H-->>G: ResumeRequest vmmio_write
+  else 未命中
+    EL2-->>G: 沿用 exit-to-VMM 路径 B
+  end
+```
+
 - 派发 handler 签名对齐现有 `FaultRecord`/`ResumeRequest` 模型：
   read → `ResumeRequest::vmmio_read(value, Default)`；write → 设备侧处理后
   `vmmio_write(Default)`；handler 报错 → `ResumeAction::Fault`。
@@ -158,11 +247,54 @@ hypervisor/virtio/
 runtime/        # hypercall 分发接入（唯一组合根）
 ```
 
+```mermaid
+flowchart TB
+  subgraph crates["hypervisor/virtio/"]
+    M["model<br/>状态机 / feature / QueueState"]
+    MM["mmio<br/>寄存器 + 读 mirror"]
+    B["backend<br/>桥对象 / reason / virq"]
+    V["virtq<br/>desc 链 + used 回写"]
+  end
+  RT["runtime<br/>hypercall 分发"]
+  AS["address_space<br/>RO 映射 + 注册表"]
+  UA["useraccess"]
+  RT --> M
+  RT --> MM
+  RT --> B
+  MM --> M
+  B --> M
+  V --> UA
+  B --> V
+  RT --> AS
+```
+
 - **model**：`VirtioStatus`（enum 穷尽：ACK→DRIVER→FEATURES_OK→DRIVER_OK
   递进校验，未知位拒绝）、feature 协商（banked sel + features_ok 门）、
   `QueueState`（sel/num/num_max/ready/desc/drv/dev，64 位地址 hi/lo 拼接）、
   `ConfigUpdate`（generation 计数器：begin 置位、end 自增并触发 config IRQ）、
   复位状态（请求→等待→完成，对 backend 的通知时机）。
+
+```mermaid
+stateDiagram-v2
+    [*] --> 复位态
+    复位态 --> ACKNOWLEDGE : guest 写 ACK
+    ACKNOWLEDGE --> DRIVER : guest 写 DRIVER
+    DRIVER --> FEATURES_OK : guest 写 FEATURES_OK
+    FEATURES_OK --> DRIVER_OK : guest 写 DRIVER_OK（通知 backend）
+    DRIVER_OK --> 运行 : 驱动收发
+    运行 --> 运行 : queue_notify → reason 位图
+    运行 --> NEEDS_RESET : guest 写 0 / backend needs_reset
+    FEATURES_OK --> FAILED : guest 写 FAILED
+    运行 --> FAILED : guest 写 FAILED
+    FAILED --> 复位态 : guest 写 0
+    NEEDS_RESET --> 复位态 : backend acknowledge_reset
+    note right of NEEDS_RESET
+        复位期间 queue ready 全清零
+        read_status 阻塞等 acknowledge 落定
+        guest 自写 NEEDS_RESET 被拒（仅 backend 可设）
+    end note
+```
+
 - **mmio**：virtio-mmio 寄存器布局（0x000 common + 0x100 device config）、
   写派发大 switch 的类型化版本、读 mirror 维护（写 handler 同时更新页内
   对应字段，保证 guest 读到新值）。
@@ -198,6 +330,33 @@ runtime/        # hypercall 分发接入（唯一组合根）
 - mgr 侧：唤醒 `virtual_device` 域的 console 配置路径（`Unavailable` →
   实装），按 VM 配置创建 backend 对象并绑定 vIRQ。
 
+```mermaid
+flowchart LR
+  subgraph Guest2["Guest"]
+    HVC["/dev/hvc0"]
+    VQ["virtqueue rx/tx"]
+  end
+  subgraph EL2c["EL2"]
+    FE["virtio frontend + mmio"]
+    BE["console backend"]
+    UART["guest_uart / PL011 出口"]
+  end
+  subgraph Mgr["xhyper-mgr"]
+    CFG["配置/激活 console"]
+  end
+
+  HVC <--> VQ
+  VQ <-->|queue_notify / vIRQ| FE
+  FE <--> BE
+  BE --> UART
+  CFG -->|管理面 hypercall| FE
+```
+
+> tx：guest → queue_notify → reason → backend 读描述符 → 复用现有 console 出口 → used + vIRQ。  
+> rx：host 输入 → EL2 注入 rx 队列 → vIRQ。数据面不经 `0x4e–0x55`（EL2 内直调）。
+
+
+
 **验收**：Secondary guest `/dev/hvc0` 双向交互；`phase-e2-console` 门禁
 （类比现有 `qemu-secondary-console`）。
 
@@ -216,6 +375,35 @@ runtime/        # hypercall 分发接入（唯一组合根）
    涉及 `/dev/xhyper` UAPI（Host Linux 内核仓，跨仓）。
    该基建与路径 B 共用（crosvm 同样受益），是两路汇合点。
 
+```mermaid
+flowchart TB
+  subgraph Guest3["Guest"]
+    BLKG["virtio-blk 驱动"]
+  end
+  subgraph EL2b["EL2 框架"]
+    MMIO2["mmio + virtq"]
+    BRIDGE["backend 桥<br/>通知 / 状态"]
+    ASYNC["异步通知<br/>ioeventfd/irqfd 等价"]
+  end
+  subgraph User["Host 用户态"]
+    PROC["精简 blk backend 进程"]
+    IMG["镜像文件"]
+  end
+  subgraph ABI["xhyper-abi"]
+    MGMT["管理面 已有"]
+    DATA["数据面 0x4e–0x55 待扩"]
+  end
+
+  BLKG <-->|MMIO / VQ| MMIO2
+  MMIO2 <--> BRIDGE
+  BRIDGE <-->|hypercall| DATA
+  DATA <--> PROC
+  PROC --> IMG
+  ASYNC -.->|两路共用| PROC
+  MGMT --> BRIDGE
+```
+
+
 **验收**：guest ext4 读写回读（对齐 phase-d4-2 强度）；IOPS 基准报告
 （异步 vs 同步 exit 对比数字）。
 
@@ -233,10 +421,70 @@ runtime/        # hypercall 分发接入（唯一组合根）
 | 阻塞复位 | `virtio_read_status` 等 reset 落定（drop RCU） | guest vCPU 线程挂起等 backend `acknowledge_reset`；接 xhyper 线程/FPRR 模型；**对象销毁必须先唤醒再回收**（失败测试覆盖） |
 | config 非原子读 | generation 计数器 | model 层实现 + 单测 |
 
+上表对应的完整时序（一次 `queue_notify` 往返，含 fence 落点）：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant G as Guest 驱动
+    participant MM as mmio handler（EL2）
+    participant VD as virtio 状态机（EL2）
+    participant BR as backend 桥（reason 位图）
+    participant BE as backend 实现
+    participant IRQ as interrupt_status / vIRQ
+
+    G->>MM: 写 queue_notify（写 fault）
+    MM->>VD: virtio_queue_notify(vq)
+    VD->>BR: 触发 queue_notify 事件
+    BR->>BR: reason.fetch_or(new_buffer, Release)
+
+    alt EL2 内 backend（Stage 2 console）
+        BR->>BE: 直调（不经 virq / hypercall）
+        BE->>BE: useraccess 读 avail 环 + 描述符链
+        BE->>BE: 写回复 + used 环
+        BE->>BE: fence(Release) → 写 used.idx
+        BE->>IRQ: 置 interrupt_status（queue 位）
+    else 外部 backend（Stage 3 blk）
+        BR->>IRQ: virq 通知 backend VM / 进程
+        BE->>VD: get_notification / get_queue_info（0x53 / 0x52）
+        VD-->>BE: reason + 队列地址
+        BE->>BE: 处理请求（经捐赠映射访问 guest 内存）
+        BE->>VD: virtio_backend_notify（0x4e）
+        VD->>IRQ: 置 interrupt_status
+    end
+
+    IRQ-->>G: 注入完成 vIRQ
+    G->>MM: 写 interrupt_ack（清对应位）
+```
+
 ### 4.2 共享 config cache 页（unsafe 重灾区）
 
 一页三用：guest（RO Stage-2 映射，直读）、EL2（hyp 映射 RW）、mgr/backend
-（经 memextent）。Rust 侧：
+（经 memextent 捐赠 + hypercall 驱动，**无直接映射**）：
+
+```mermaid
+flowchart TB
+    PAGE["config cache 物理页<br/>（mgr 经 memextent 捐赠）"]
+
+    subgraph GV["Guest — 唯一读者"]
+        RO["Stage-2 RO 映射<br/>读不 trap"]
+    end
+    subgraph EV["EL2 — 唯一写者"]
+        RW["hyp 映射 RW<br/>UnsafeCell + volatile 封装"]
+    end
+    subgraph MV["mgr / Host backend"]
+        HC["hypercall 0x49/0x4f/0x4e …"]
+    end
+
+    RO -->|直读| PAGE
+    RW -->|trap handler 更新<br/>+ hypercall 驱动的更新| PAGE
+    HC -->|经 EL2 间接写| RW
+```
+
+> 安全论证就一句话：**只有 EL2 写、只有 guest 直读、其余全走 EL2**。
+> 无 data-race 的论证范围因此收敛到 EL2 单侧。
+
+Rust 侧：
 
 - 页封装为专用类型（内部 `UnsafeCell<[u8; PAGE]>`），只暴露
   `volatile_read/write_reg<T>(offset)` 接口；寄存器字段访问一律 volatile。
@@ -257,6 +505,14 @@ runtime/        # hypercall 分发接入（唯一组合根）
   新增 `qemu_virtio_defconfig` 或 phase 脚本内开。
 - 路径 B 的门禁（phase-d4-2 等）在 feature off 下必须零变化；
   路径 A 门禁（phase-e* 系列）独立新增。
+
+```mermaid
+flowchart TB
+  FG{"CONFIG_HYPERVISOR_VIRTIO"}
+  FG -->|off 默认| B["仅路径 B<br/>phase-d4 门禁不变"]
+  FG -->|on| A["路径 A phase-e* + 路径 B 仍可用"]
+```
+
 
 ---
 
@@ -299,7 +555,8 @@ runtime/        # hypercall 分发接入（唯一组合根）
 | Stage 3 | 6–10 周 | ABI 扩展 + backend 进程 + 异步通知 + IOPS 基准 |
 | 合计 | ~3.5–5 个月 | Stage 3 的异步通知与路径 B 共用，可并行 |
 
-参照：Gunyah C 侧对应实现约 1400 行 + 接口声明/模板/测试；Rust 侧估
+参照：Gunyah C 侧对应实现约 1400 行 + 接口声明/模板/测试（**不含**
+virtio_iommu，其 1600+ 行在范围外，见非目标）；Rust 侧估
 3000–4500 行含测试（model 穷尽测试占比高）。
 
 ---
