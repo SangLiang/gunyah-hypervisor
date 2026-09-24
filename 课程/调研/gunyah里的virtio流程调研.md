@@ -110,6 +110,70 @@ used ring → `notify`(0x4e) 让 EL2 给 guest 注入完成中断。
 
 所以"卡在最后一步"的准确形状：**设备枚举一切正常，第一个读写请求挂死**。
 
+### 2.4 完整往返：backend 落 HLOS 时的形态
+
+把 §2.3 里那个"空缺"补上，一次 I/O 完整往返是这样的（生产形态；OSS 里没人写这段）：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant G as Guest 驱动
+    participant EL2 as EL2 virtio 框架
+    participant HK as HLOS 内核<br/>(gunyah 驱动)
+    participant BE as HLOS 用户态<br/>backend 进程
+    participant DRV as HLOS 物理设备驱动<br/>(块/网卡)
+    participant HW as 物理设备
+
+    Note over G,EL2: ① 通知（virq 异步信号）
+    G->>EL2: 写 queue_notify（trap）
+    EL2->>EL2: reason.fetch_or(new_buffer, Release)
+    EL2-->>HK: virq_assert 注入 backend VM
+
+    Note over HK,BE: ② 唤醒（HLOS 内核自己的调度）
+    HK->>BE: IRQ 处理 → 唤醒等待中的进程
+
+    Note over BE,EL2: ③ 拉取元数据（hypercall 同步）
+    BE->>HK: ioctl
+    HK->>EL2: get_notification(0x53)
+    EL2-->>BE: reason + vqs_bitmap
+    BE->>HK: ioctl
+    HK->>EL2: get_queue_info(0x52)
+    EL2-->>BE: 队列地址（desc/drv/dev ring）
+
+    Note over BE,DRV: ④ 数据处理（共享内存直读 + HLOS 驱动栈）
+    BE->>BE: 经捐赠映射直读 guest virtqueue
+    BE->>DRV: read/write 块设备 / 收发网包
+    DRV->>HW: 真实 DMA
+    HW-->>DRV: 完成
+    DRV-->>BE: 完成
+    BE->>BE: 直写 used ring（共享内存）
+
+    Note over BE,G: ⑤ 完成回告（hypercall + virq 注入 guest）
+    BE->>HK: ioctl
+    HK->>EL2: virtio_backend_notify(0x4e)
+    EL2-->>G: 注入完成 vIRQ
+    G->>G: 收中断，读 used ring
+```
+
+**一次 I/O 用了三种完全不同的机制**，不是单一的消息或接口调用：
+
+| 阶段 | 机制 | 说明 |
+|---|---|---|
+| ① 异步唤醒 | **virq（虚拟中断）** | EL2 给 backend VM 注入一个虚拟中断，HLOS 内核像收普通设备中断一样收它。**不是 msgq 消息**——Gunyah 的 msgq 是另一套 IPC（给 RM↔HLOS 的 RPC 用），virtio backend 不走它 |
+| ③ 元数据/控制交换 | **hypercall（同步拉模式）** | backend 主动调 `get_notification`/`get_queue_info` 拉 reason 和队列地址；处理完调 `notify` 推回。在 HLOS 用户态经 ioctl → gunyah 内核驱动 → hypercall |
+| ④ 批量数据 | **共享内存直读直写** | guest 的 virtqueue 内存经 memextent 捐赠映射进了 backend VM 的地址空间——backend 像访问自己内存一样读写，**没有 per-access hypercall**。这正是高性能的关键 |
+
+这和 KVM 的 `irqfd`+`ioeventfd`+内存映射是同一套思路（信号/控制/数据分离）。Gunyah 没现成的 irqfd/ioeventfd 等价物——这是 xhyper 调研里识别出的**性能缺口**，需要补。
+
+### 2.5 HLOS 的驱动依赖：两层都要
+
+物理设备要真正动起来，HLOS 上必须有**两类驱动**，缺一不可：
+
+1. **Gunyah 接口驱动**（Linux 内核侧）：把 hypercall ABI 暴露给用户态（`/dev/gunyah` 一类的 ioctl）、收 backend virq、管理捐赠内存映射。这是 backend 机制的"地基"——没它，backend 进程没法调 hypercall、收不到唤醒中断。Gunyah OSS 这块在上游 Linux 内核的 `drivers/virt/gunyah/`；xhyper 对应的是 Host Linux 内核里的 `/dev/xhyper` UAPI（设计文档里标为 Stage 3 的跨仓依赖）。
+2. **物理设备驱动**（HLOS 原本就有的）：backend 进程不直接碰硬件——它只是个"协议翻译 + 调度"层，把 guest 的 virtio 请求翻译成 HLOS 的常规 I/O 调用（`read/write` 块设备、收发 socket/tap 网包），**真正和硬件打交道的是 HLOS 自己的块/网卡驱动**（NVMe/UFS/SATA/以太网驱动等），跑真实 DMA。
+
+**这就是 backend 必须落 HLOS、不能落 Root VM 的根本原因**：HLOS 有现成的、成熟的物理设备驱动栈可复用；Root VM（mgr）是 no_std 裸机，没有任何驱动——往里塞 backend 等于要重写一遍 Linux 驱动栈，就是"方案 C"被否决的核心论据。backend 进程本身很薄（就是 virtio 协议 ↔ HLOS 系统调用之间的胶水），重活全让 HLOS 已有驱动干。
+
 ---
 
 ## 3. 五层能力盘点：谁现成、谁空缺
