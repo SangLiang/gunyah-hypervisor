@@ -12,6 +12,31 @@
 
 ---
 
+## 执行摘要：谁干什么（三段式）
+
+Gunyah 的 virtio 架构是经典微内核三层在 virtio 场景的投影——**关键在内核、
+编排在中层、重活委派给用户态**：
+
+| 层 | 职责 | 现状 |
+|---|---|---|
+| **EL2（hyper）** | virtio 安全核心：transport、状态机、桥对象、virtq、capability 校验 | ✅ OSS 已做（5645 行） |
+| **Root VM（RM/mgr）** | backend **生命周期编排**：create/configure/bind_virq/activate/deactivate/cleanup、capability 路由、DT 生成、内存捐赠、中断接线、失败补偿 | ✅ OSS 已做（管理面），xhyper-mgr 休眠待唤醒 |
+| **HLOS（PVM/Host）** | backend **任务执行**：拉取请求、处理 virtqueue、读写 guest 内存、对接真实驱动栈做 I/O、写 used ring、notify 回 EL2 | ❌ **OSS 空缺**——生产由闭源 HLOS 用户态 daemon 补 |
+
+两点精度（避免被宽解）：
+
+1. Root VM 的"调度"是**生命周期 + 资源编排**，不是 runtime CPU 调度——backend
+   真跑起来后由 backend VM 自己的 OS（HLOS 内核调度器）排。这也是为什么 backend
+   不能塞进 Root VM（mgr 是 no_std 裸机、无驱动栈，方案 C 已否决）。
+2. 数据面 runtime **两边分担**：EL2 跑每次 trap（状态机推进 + reason 位图 +
+   virq 通知）；HLOS 跑 payload（描述符处理 + 真实 I/O）；EL2 再收 `notify(0x4e)`
+   给 guest 注入完成 vIRQ。"任务执行在 HLOS"对重 I/O 而言成立，但 per-access
+   trap 处理仍在 EL2。
+
+下面 §1 起是对这个三段式的逐层证据展开。
+
+---
+
 ## 1. 一句话结论
 
 **框架生产级、数据面留白**：开源 Gunyah 能陪 guest 的 virtio 驱动一路走到 `DRIVER_OK`
